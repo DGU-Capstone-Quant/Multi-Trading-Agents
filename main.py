@@ -1,5 +1,5 @@
-﻿from modules.agents import Agent
+﻿from graphs import create_test_graph
 
-agent = Agent()
-response = agent.ask("What is the capital of France?")
-print(f"Agent's answer: {response}")
+test_graph = create_test_graph()
+#test_graph.run(subject="어둠의 숲 가설", max_chats=10)
+test_graph.run(max_chats=10)
