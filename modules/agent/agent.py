@@ -1,7 +1,6 @@
 ﻿# modules/agents/agent.py
 from modules.llm import Client
 
-
 class Agent:
     def __init__(self):
         self.llm_client = Client()
@@ -24,8 +23,6 @@ class Agent:
         print(f"Agent's answer: {response.content.get('text')}")
 
 
-
-# Test: python -m modules.agents.agent
 if __name__ == "__main__":
     agent = Agent()
     answer = agent.run(question="What is the capital of France?")
