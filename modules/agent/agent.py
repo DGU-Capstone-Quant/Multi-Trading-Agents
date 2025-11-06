@@ -1,5 +1,6 @@
 ﻿# modules/agents/agent.py
 from modules.llm import Client
+from modules.context import Context
 
 class Agent:
     def __init__(self):
@@ -13,16 +14,20 @@ class Agent:
 
         self.tools = []
 
-    def run(self, **kwargs):
+    def run(self, context: Context) -> Context:
         response = self.llm_client.generate_content(
             model=self.quick_model,
-            contents=[kwargs.get("question", "Hello, world!")],
+            contents=[context.get_cache("question", "Hello, How are you?")],
             thinking_budget=self.quick_thinking_budget,
         )
 
         print(f"Agent's answer: {response.content.get('text')}")
+        context.set_cache("answer", response.content.get('text'))
+        return context
 
-
+# Test: python -m modules.agent.agent
 if __name__ == "__main__":
     agent = Agent()
-    answer = agent.run(question="What is the capital of France?")
+    context = Context()
+    context.set_cache("question", "What is the capital of France?")
+    context = agent.run(context)

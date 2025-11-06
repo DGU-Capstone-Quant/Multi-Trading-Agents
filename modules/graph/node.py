@@ -1,4 +1,5 @@
 ﻿# modules/graph/node.py
+from modules.context import Context
 
 
 class Edge:
@@ -6,10 +7,10 @@ class Edge:
         self.to_node = to_node
         self.cond_func = cond_func
 
-    def is_condition_met(self, **kwargs) -> bool:
+    def is_condition_met(self, context: Context) -> bool:
         if self.cond_func is None:
             return True
-        return self.cond_func(**kwargs)
+        return self.cond_func(context)
 
 class BaseNode:
     def __init__(self, name: str):
@@ -17,12 +18,12 @@ class BaseNode:
         self.state = 'pending' # 가능한 상태: 'pending', 'running', 'passed'
         self.edges: list[Edge] = []
 
-    def run(self, **kwargs):
+    def run(self, context: Context):
         raise NotImplementedError("BaseNode의 run 메서드는 서브클래스에서 구현되어야 함")
     
-    def get_next_nodes(self, **kwargs):
+    def get_next_nodes(self, context: Context):
         for edge in self.edges:
-            if edge.is_condition_met(**kwargs):
+            if edge.is_condition_met(context):
                 return edge.to_node
         return None
     

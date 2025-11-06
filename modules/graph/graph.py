@@ -1,27 +1,28 @@
 ﻿# modules/graph/graph.py
 from .node import *
+from modules.context import Context
 
 class Graph:
     def __init__(self, start_node: BaseNode):
         self.start_node = start_node
         self.graph: dict[str, BaseNode] = {start_node.name: start_node}
 
-    def run(self, **kwargs) -> dict:
+    def run(self, context: Context) -> dict:
         current_node = self.start_node
 
         while True:
-            current_node.state = 'in_progress'
-            kwargs = current_node.run(**kwargs)
+            current_node.state = 'running'
+            context = current_node.run(context)
             if current_node.state != 'passed':
                 continue
 
-            current_node = current_node.get_next_nodes(**kwargs)
+            current_node = current_node.get_next_nodes(context)
             if current_node:
                 continue
 
             break
 
-        return kwargs
+        return context
 
     def add_node(self, node: BaseNode) -> str:
         self.graph[node.name] = node
