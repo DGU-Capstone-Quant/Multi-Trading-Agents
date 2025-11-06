@@ -1,6 +1,17 @@
 from modules.agent import Agent
 from modules.llm.client import Client
-from modules.debate.schemas import BullReply, BearReply, ManagerDecision
+from pydantic import BaseModel
+
+class BullReply(BaseModel):
+    chat: str
+
+class BearReply(BaseModel):
+    chat: str
+
+class ManagerDecision(BaseModel):
+    decision: str
+    rationale: str
+    plan: str
 
 COMMON_CONTEXT_TMPL = """[MARKET REPORT]
 {market_report}
