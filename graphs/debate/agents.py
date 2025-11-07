@@ -57,9 +57,9 @@ class BullResearcher(Agent):
         # AI에게 전달할 프롬프트 구성
         prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
             market_report=context.get_report("market_report"),  # 시장 리포트
-            # sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
-            # news_report=context.get_report("news_report"),  # 뉴스 정보
-            # fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
+            sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
+            news_report=context.get_report("news_report"),  # 뉴스 정보
+            fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
             history=history,  # 토론 히스토리
             last_arg=last_arg,  # 상대방의 마지막 주장
         )
@@ -116,9 +116,9 @@ class BearResearcher(Agent):
         # AI에게 전달할 프롬프트 구성
         prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
             market_report=context.get_report("market_report"),  # 시장 리포트
-            # sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
-            # news_report=context.get_report("news_report"),  # 뉴스 정보
-            # fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
+            sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
+            news_report=context.get_report("news_report"),  # 뉴스 정보
+            fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
             history=history,  # 토론 히스토리
             last_arg=last_arg,  # 상대방의 마지막 주장
         )
