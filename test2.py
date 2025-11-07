@@ -2,29 +2,142 @@ from modules.graph.graph import Graph
 from modules.graph.node import BaseNode
 from modules.context import Context
 from modules.agent.agent import Agent
+from modules.llm.client import Client
+from pydantic import BaseModel
+
+
+class ArgumentReply(BaseModel):
+    chat: str
+
+
+class JudgmentDecision(BaseModel):
+    analysis: str
+    winner: str
+
+
+class ActionAgent(Agent):
+    def __init__(self, name: str = "액션파"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
+
+    def run(self, context: Context) -> Context:
+        history = context.get_cache("history", "")
+        last_arg = context.get_cache("current_response", "")
+
+        contents = [
+            f"당신은 {self.name}입니다. 액션 영화를 옹호하는 토론자입니다.",
+            "액션 영화가 더 좋은 이유를 1-2문장으로 주장하세요. 흥미진진함과 스트레스 해소 효과를 강조하세요.",
+            f"토론 히스토리: {history}",
+            f"상대방의 마지막 주장: {last_arg}",
+        ]
+
+        resp = self.llm_client.generate_content(
+            model=self.quick_model,
+            contents=contents,
+            thinking_budget=self.quick_thinking_budget,
+            schema=ArgumentReply,
+        )
+
+        chat = resp.content.get("chat", "")
+        line = f"{self.name}: {chat}"
+
+        new_history = history + ("\n" if history else "") + line
+
+        context.set_cache(
+            history=new_history,
+            action_argument=chat,
+            current_response=line,
+            count=context.get_cache("count", 0) + 1,
+        )
+
+        return context
+
+
+class DramaAgent(Agent):
+    def __init__(self, name: str = "드라마파"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
+
+    def run(self, context: Context) -> Context:
+        history = context.get_cache("history", "")
+        last_arg = context.get_cache("current_response", "")
+
+        contents = [
+            f"당신은 {self.name}입니다. 드라마 영화를 옹호하는 토론자입니다.",
+            "드라마 영화가 더 좋은 이유를 1-2문장으로 주장하세요. 깊이 있는 스토리와 감정적 몰입을 강조하세요.",
+            f"토론 히스토리: {history}",
+            f"상대방의 마지막 주장: {last_arg}",
+        ]
+
+        resp = self.llm_client.generate_content(
+            model=self.quick_model,
+            contents=contents,
+            thinking_budget=self.quick_thinking_budget,
+            schema=ArgumentReply,
+        )
+
+        chat = resp.content.get("chat", "")
+        line = f"{self.name}: {chat}"
+
+        new_history = history + ("\n" if history else "") + line
+
+        context.set_cache(
+            history=new_history,
+            drama_argument=chat,
+            current_response=line,
+            count=context.get_cache("count", 0) + 1,
+        )
+
+        return context
+
+
+class JudgeAgent(Agent):
+    def __init__(self, name: str = "심판"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
+
+    def run(self, context: Context) -> Context:
+        history = context.get_cache("history", "")
+
+        prompt = f"""당신은 공정한 심판입니다. 토론 내용을 검토하고 승자를 결정하세요.
+
+토론 내용:
+{history}
+
+두 주장을 비교 분석하고 승자를 "액션 영화" 또는 "드라마 영화" 중 하나로 결정하세요.
+"""
+
+        resp = self.llm_client.generate_content(
+            model=self.quick_model,
+            contents=[prompt],
+            thinking_budget=self.quick_thinking_budget,
+            schema=JudgmentDecision,
+        )
+
+        context.set_cache(
+            judge_decision=resp.content,
+            current_response=f"{self.name}: {resp.content}",
+        )
+
+        return context
 
 
 class ActionNode(BaseNode):
     def __init__(self, name: str):
         super().__init__(name)
-        self.agent = Agent()
+        self.agent = ActionAgent(name)
 
     def run(self, context: Context):
-        round_num = context.get_cache("round", 0) + 1
-        drama_arg = context.get_cache("drama_argument", "")
-
-        prompt = f"당신은 액션 영화를 추천하는 토론자입니다. "
-        if drama_arg:
-            prompt += f"상대방의 주장: '{drama_arg}'. 이에 대해 반박하면서 "
-        prompt += "액션 영화가 더 좋은 이유를 1-2문장으로 주장하세요. 박진감, 스트레스 해소 등을 강조하세요."
-
-        context.set_cache(question=prompt)
-        context = self.agent.run(context)
-        argument = context.get_cache("answer", "")
-
+        round_num = context.get_cache("count", 0) // 2 + 1
         print(f"\n[라운드 {round_num}] [{self.name}]")
+
+        context = self.agent.run(context)
+        argument = context.get_cache("action_argument", "")
         print(f"주장: {argument}")
-        context.set_cache(action_argument=argument, round=round_num)
+
         self.state = 'passed'
         return context
 
@@ -32,24 +145,16 @@ class ActionNode(BaseNode):
 class DramaNode(BaseNode):
     def __init__(self, name: str):
         super().__init__(name)
-        self.agent = Agent()
+        self.agent = DramaAgent(name)
 
     def run(self, context: Context):
-        round_num = context.get_cache("round", 0)
-        action_arg = context.get_cache("action_argument", "")
-
-        prompt = f"당신은 드라마 영화를 추천하는 토론자입니다. "
-        if action_arg:
-            prompt += f"상대방의 주장: '{action_arg}'. 이에 대해 반박하면서 "
-        prompt += "드라마 영화가 더 좋은 이유를 1-2문장으로 주장하세요. 깊이, 감동, 스토리텔링 등을 강조하세요."
-
-        context.set_cache(question=prompt)
-        context = self.agent.run(context)
-        argument = context.get_cache("answer", "")
-
+        round_num = (context.get_cache("count", 0) + 1) // 2
         print(f"\n[라운드 {round_num}] [{self.name}]")
+
+        context = self.agent.run(context)
+        argument = context.get_cache("drama_argument", "")
         print(f"주장: {argument}")
-        context.set_cache(drama_argument=argument)
+
         self.state = 'passed'
         return context
 
@@ -57,32 +162,21 @@ class DramaNode(BaseNode):
 class JudgeNode(BaseNode):
     def __init__(self, name: str):
         super().__init__(name)
-        self.agent = Agent()
+        self.agent = JudgeAgent(name)
 
     def run(self, context: Context):
-        action_arg = context.get_cache("action_argument", "")
-        drama_arg = context.get_cache("drama_argument", "")
+        history = context.get_cache("history", "")
 
         print(f"\n[{self.name}] 최종 판단!")
         print("\n--- 토론 내용 검토 ---")
-        print(f"액션파: {action_arg}")
-        print(f"드라마파: {drama_arg}")
-
+        print(history)
         print("\n--- 심판 의견 ---")
 
-        prompt = f"""당신은 공정한 심판입니다. 두 토론자의 주장을 듣고 승자를 결정하세요.
-
-액션파 주장: {action_arg}
-드라마파 주장: {drama_arg}
-
-두 주장을 비교 분석하고, 어느 쪽이 더 설득력 있었는지 판단한 뒤,
-"액션 영화 승리!" 또는 "드라마 영화 승리!"로 끝나는 2-3문장의 판결문을 작성하세요."""
-
-        context.set_cache(question=prompt)
         context = self.agent.run(context)
-        judgment = context.get_cache("answer", "")
+        decision = context.get_cache("judge_decision", {})
 
-        print(judgment)
+        print(f"분석: {decision.get('analysis', '')}")
+        print(f"승자: {decision.get('winner', '')} 승리!")
 
         self.state = 'passed'
         return context
@@ -99,15 +193,16 @@ def create_movie_graph(max_rounds=2):
 
     graph.add_edge("액션파", "드라마파")
     graph.add_edge("드라마파", "심판",
-                   cond_func=lambda ctx: ctx.get_cache("round", 0) >= max_rounds)
+                   cond_func=lambda ctx: ctx.get_cache("count", 0) >= max_rounds * 2)
     graph.add_edge("드라마파", "액션파")
 
     return graph
 
 
 if __name__ == "__main__":
-    print("=== 영화 추천 시작 ===")
-    graph = create_movie_graph(max_rounds=2)
+    print("=== 영화 추천 토론 시작 ===")
+    graph = create_movie_graph(max_rounds=4)
     ctx = Context()
+    ctx.set_cache(history="", count=0)
     graph.run(ctx)
-    print("\n=== 완료 ===")
+    print("\n=== 토론 완료 ===")
