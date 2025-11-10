@@ -1,11 +1,13 @@
 ﻿# main.py
-from graphs.debate.factory import create_debate_graph
+from graphs.debate.factory import create_debate_graph, create_context
 
 if __name__ == "__main__":
-    graph, ctx = create_debate_graph(
+    ctx = create_context(
         ticker="GOOGL",
         trade_date="2025-03-28",
         rounds=2
     )
+
+    graph = create_debate_graph(rounds=2)
 
     graph.run(ctx)
