@@ -49,13 +49,17 @@ def create_context(ticker: str, trade_date: str, rounds: int = 1) -> Context:
         bear_history="",  # Bear 전용 히스토리
         current_response="",  # 가장 최근 발언
         count=0,  # 토론 카운트
+        rounds=rounds,  # 토론 라운드 수
         max_rounds=rounds,  # 최대 라운드 수
     )
 
     return ctx
 
-def create_debate_graph(rounds: int = 1) -> Graph:
+def create_debate_graph(ctx: Context) -> Graph:
     """토론 그래프 생성"""
+    # Context에서 rounds 값 가져오기
+    rounds = ctx.get_cache("rounds", 1)
+
     # 1. 노드 생성
     bull = BullNode("Bull")  # Bull 노드 생성
     bear = BearNode("Bear")  # Bear 노드 생성

@@ -8,6 +8,6 @@ if __name__ == "__main__":
         rounds=2
     )
 
-    graph = create_debate_graph(rounds=2)
+    graph = create_debate_graph(ctx)
 
     graph.run(ctx)
