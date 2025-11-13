@@ -8,5 +8,7 @@ dependencies = [
     "google-genai>=1.47.0",
     "pandas>=2.3.3",
     "pydantic>=2.12.3",
+    "textual>=6.6.0",
+    "textual-plotext>=1.0.1",
     "yfinance>=0.2.66",
 ]
