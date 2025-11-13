@@ -47,7 +47,7 @@ def _get_response_by_query(**params) -> dict:
     res = requests.get(url=URL, params=filtered_params,
                        headers={
                             "x-rapidapi-host": "alpha-vantage.p.rapidapi.com",
-                            "x-rapidapi-key": "8895767997msh656c30067a8819dp16f4a1jsnf0564632fd81"
+                            "x-rapidapi-key": apikey
                         })
     
     file_path = _get_file_path_by_query(**params)
