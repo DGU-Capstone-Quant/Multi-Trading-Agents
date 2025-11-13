@@ -18,8 +18,10 @@ def _get_file_path_by_query(**params) -> str:
 
     if file_path.endswith("NEWS_SENTIMENT/"):
         file_path += f"{params.get('tickers','') }_" +\
+                     f"{params.get('topics','')}_" +\
                      f"{params.get('limit','')}_" +\
-                     f"{dt.now().strftime('%Y%m%d%H')}.json"
+                     f"{params.get('time_from','')}_" +\
+                     f"{params.get('time_to', dt.now().strftime('%Y%m%d%H'))}.json"
     elif file_path.endswith("TIME_SERIES_INTRADAY/"):
         file_path += f"{params.get('symbol','')}_" +\
                      f"{params.get('interval','')}_" +\
@@ -88,12 +90,15 @@ def _get_query_data(**params) -> dict:
     content = _get_response_by_query(**params)
     return content
 
-# time_from time_to 구현 필요
-def get_news_sentiment(ticker: str="", limit: int=50, apikey: str="") -> dict:
+
+def get_news_sentiment(ticker: str="", topics: str="", limit: int=50, time_from: str="", time_to: str="", apikey: str="") -> dict:
     content = _get_query_data(
         function="NEWS_SENTIMENT",
         tickers=ticker,
+        topics=topics,
         limit=limit,
+        time_from=time_from,
+        time_to=time_to,
         apikey=apikey,
     )
     return content
