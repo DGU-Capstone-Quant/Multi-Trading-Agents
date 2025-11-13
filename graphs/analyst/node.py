@@ -1,2 +1,3 @@
 ﻿# graphs/analyst/node.py
-from modules.node import Edge, BaseNode
+from modules.graph import BaseNode
+from modules.context import Context
