@@ -1,403 +1,805 @@
 #!/usr/bin/env python3
-# Textual 기반 주식 데이터 시각화 CLI 도구
+# Textual 기반 주식 차트 뷰어
 
-# TUI 애플리케이션 개발용
 from textual.app import App, ComposeResult
-# UI 레이아웃 구성용
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-# UI 구성 요소들
-from textual.widgets import Header, Footer, Static, Button, Input, Label, OptionList
-from textual.widgets.option_list import Option
-# 값 변경 시 자동 업데이트
-from textual.reactive import reactive
-# 스크린 관리
-from textual.screen import ModalScreen
-# 이벤트 핸들러 등록
-from textual import on
-# 터미널에서 그래프를 그리는 위젯
+from textual.widgets import Header, Footer, Static, Button, Label, ListView, ListItem, Input
+from textual.screen import Screen
+from textual import on, work
 from textual_plotext import PlotextPlot
-# pandas를 이용한 데이터 처리
 import pandas as pd
-# 주식 데이터 가져오는 함수
-from modules.utils.fetch import (
-    fetch_time_series_intraday,  # 일중 데이터
-    fetch_time_series_daily,     # 일간 데이터
-    fetch_time_series_weekly,    # 주간 데이터
-    fetch_time_series_monthly    # 월간 데이터
-)
+from modules.utils.fetch import fetch_time_series_daily
+from datetime import datetime, timedelta
+from pathlib import Path
+import os
 
 
-class CommandPalette(ModalScreen): # 명령어 팔레트 팝업
-    BINDINGS = [
-        ("escape", "dismiss", "Close"),
-    ]
-
-    CSS = """
-    CommandPalette {
-        align: center middle;
-        background: rgba(0, 0, 0, 0.7);
-    }
-
-    #command-dialog {
-        width: 80;
-        height: auto;
-        max-height: 35;
-        background: $boost;
-        border: heavy $accent;
-        padding: 2 3;
-    }
-
-    #command-title {
-        text-align: center;
-        text-style: bold;
-        color: $accent;
-        margin-bottom: 1;
-        background: $panel;
-        padding: 1;
-    }
-
-    OptionList {
-        height: 20;
-        border: solid $primary;
-        background: $surface;
-        padding: 1;
-    }
-
-    OptionList > .option-list--option {
-        padding: 0 2;
-    }
-
-    OptionList > .option-list--option-highlighted {
-        background: $accent;
-        color: $text;
-        text-style: bold;
-    }
-    """
+class ApiSettingsWidget(VerticalScroll):
+    """API 키 설정 위젯"""
 
     def compose(self) -> ComposeResult:
-        with Container(id="command-dialog"):
-            yield Static("명령어 목록", id="command-title")
-            yield OptionList(
-                Option("q          프로그램 종료", id="cmd-quit"),
-                Option("r          현재 데이터 새로고침", id="cmd-refresh"),
-                Option("h          명령어 도움말 열기/닫기", id="cmd-palette"),
-                Option("Tab        다음 입력 필드로 이동", id="cmd-tab"),
-                Option("Shift+Tab  이전 입력 필드로 이동", id="cmd-shift-tab"),
-                Option("Enter      데이터 가져오기", id="cmd-enter"),
-                Option("Escape     이 창 닫기", id="cmd-escape"),
-            )
+        yield Static("API 설정", id="api-settings-title")
+        with Horizontal(id="api-inputs-container"):
+            with Vertical(id="google-api-section"):
+                yield Static("Google API Key:", classes="api-label")
+                yield Input(
+                    placeholder="Google API 키를 입력하세요",
+                    password=True,
+                    id="google-api-input"
+                )
+            with Vertical(id="rapid-api-section"):
+                yield Static("Rapid API Key:", classes="api-label")
+                yield Input(
+                    placeholder="Rapid API 키를 입력하세요",
+                    password=True,
+                    id="rapid-api-input"
+                )
+        with Horizontal(id="api-buttons-container"):
+            yield Button("저장", id="save-api-button", variant="success")
+            yield Button("초기화", id="clear-api-button", variant="error")
+            yield Static("", id="api-status")
 
-    @on(OptionList.OptionSelected)
-    def option_selected(self, event: OptionList.OptionSelected) -> None:
-        """옵션이 선택되었을 때 팝업 닫기"""
-        self.dismiss()
+    def on_mount(self):
+        """초기 환경변수 로드"""
+        google_key = os.environ.get("GOOGLE_API_KEY", "")
+        rapid_key = os.environ.get("RAPID_API_KEY", "")
+
+        if google_key:
+            self.query_one("#google-api-input", Input).value = google_key
+        if rapid_key:
+            self.query_one("#rapid-api-input", Input).value = rapid_key
+
+        self.update_status()
+
+    def update_status(self):
+        """API 키 설정 상태 업데이트"""
+        google_set = bool(os.environ.get("GOOGLE_API_KEY"))
+        rapid_set = bool(os.environ.get("RAPID_API_KEY"))
+
+        status = self.query_one("#api-status", Static)
+        if google_set and rapid_set:
+            status.update("✓ 모든 API 키 설정됨")
+            status.styles.color = "green"
+        elif google_set or rapid_set:
+            status.update("⚠ 일부 API 키 설정됨")
+            status.styles.color = "yellow"
+        else:
+            status.update("✗ API 키 미설정")
+            status.styles.color = "red"
+
+    def save_api_keys(self):
+        """환경변수에 API 키 저장"""
+        google_input = self.query_one("#google-api-input", Input)
+        rapid_input = self.query_one("#rapid-api-input", Input)
+
+        google_key = google_input.value.strip()
+        rapid_key = rapid_input.value.strip()
+
+        if google_key:
+            os.environ["GOOGLE_API_KEY"] = google_key
+        if rapid_key:
+            os.environ["RAPID_API_KEY"] = rapid_key
+
+        self.update_status()
+        return google_key or rapid_key  # 하나라도 설정되었는지 확인
+
+    def clear_api_keys(self):
+        """환경변수에서 API 키 제거"""
+        if "GOOGLE_API_KEY" in os.environ:
+            del os.environ["GOOGLE_API_KEY"]
+        if "RAPID_API_KEY" in os.environ:
+            del os.environ["RAPID_API_KEY"]
+
+        self.query_one("#google-api-input", Input).value = ""
+        self.query_one("#rapid-api-input", Input).value = ""
+        self.update_status()
 
 
-class StockChart(Static): # 주식 차트를 표시하는 위젯 클래스
-    # 값이 변경되면 watch_data 메서드 자동 호출
-    data = reactive(None, always_update=True)
-    # 차트 제목
-    title = reactive("")
-    # 차트 타입
-    chart_type = reactive("close")
-
-    def __init__(self, title: str = "", chart_type: str = "close", *args, **kwargs):
-        # 부모 클래스 초기화
+class StockChart(Static):
+    """주식 차트 위젯"""
+    def __init__(self, ticker: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.title = title
-        self.chart_type = chart_type
-        # 차트 렌더링용 PlotextPlot 인스턴스 생성
+        self.ticker = ticker
         self.plt = PlotextPlot()
+        self.data = None
 
     def compose(self) -> ComposeResult:
-        # PlotextPlot을 위젯으로 추가
         yield self.plt
 
-    def watch_data(self, data: pd.DataFrame) -> None: # data 속성이 변경될 때 자동 호출
-        # 데이터가 None이거나 비어있으면 종료
-        if data is None:
-            return
-        if isinstance(data, pd.DataFrame) and data.empty:
-            return
-
-        # 차트 업데이트
-        self.update_chart(data)
-
-    def update_chart(self, data: pd.DataFrame) -> None: # 데이터로 차트를 렌더링
-        # plotext 객체 가져오기
-        plt = self.plt.plt
-        # 이전 데이터 제거
-        plt.clear_data()
-        # 차트 전체 초기화
-        plt.clear_figure()
-
-        # 데이터가 비어있으면 메시지 표시 후 종료
-        if isinstance(data, pd.DataFrame) and data.empty:
+    def update_chart(self, data: pd.DataFrame) -> None:
+        """차트 업데이트"""
+        if data is None or (isinstance(data, pd.DataFrame) and data.empty):
+            plt = self.plt.plt
+            plt.clear_data()
+            plt.clear_figure()
             plt.title("No data available")
             self.plt.refresh()
             return
-        elif not isinstance(data, pd.DataFrame):
-            plt.title("Invalid data type")
-            self.plt.refresh()
-            return
 
-        # timestamp 기준 데이터 정렬
+        plt = self.plt.plt
+        plt.clear_data()
+        plt.clear_figure()
+
         data = data.sort_values('timestamp')
-
-        # x축 레이블 생성
-        x_labels = data['timestamp'].dt.strftime('%Y-%m-%d %H:%M').tolist()
-        # x축 좌표 생성
+        x_labels = data['timestamp'].dt.strftime('%Y-%m-%d').tolist()
         x = list(range(len(data)))
+        y = data['close'].tolist()
 
-        # 차트 타입에 따라 다른 그래프 그리기
-        if self.chart_type == "close":
-            # 종가 차트
-            y = data['close'].tolist()
-            plt.plot(x, y, label="Close Price", marker="braille")
-            plt.title(f"{self.title} - Close Price")
-        elif self.chart_type == "ohlc":
-            # OHLC(시가/고가/저가/종가) 차트
-            plt.plot(x, data['open'].tolist(), label="Open", marker="braille")
-            plt.plot(x, data['high'].tolist(), label="High", marker="braille")
-            plt.plot(x, data['low'].tolist(), label="Low", marker="braille")
-            plt.plot(x, data['close'].tolist(), label="Close", marker="braille")
-            plt.title(f"{self.title} - OHLC")
-        elif self.chart_type == "volume":
-            # 거래량 막대 차트
-            y = data['volume'].tolist()
-            plt.bar(x, y, label="Volume")
-            plt.title(f"{self.title} - Volume")
+        plt.plot(x, y, label="Close Price", marker="braille")
+        plt.title(f"{self.ticker} - Daily Close Price")
 
-        # x축 레이블을 10개 정도만 표시 (겹침 방지)
         step = max(1, len(x_labels) // 10)
         plt.xticks([x[i] for i in range(0, len(x), step)],
                    [x_labels[i] for i in range(0, len(x_labels), step)])
 
-        # x축, y축 레이블 설정
         plt.xlabel("Date")
-        plt.ylabel("Price" if self.chart_type != "volume" else "Volume")
-
-        # 차트 화면에 표시
+        plt.ylabel("Price ($)")
         self.plt.refresh()
 
 
-class StockVisualizerApp(App): # 주식 데이터 시각화
+class PortfolioWidget(Static):
+    """포트폴리오 목록 위젯"""
+
+    STOCK_LIST = ["AAPL", "GOOGL", "NVDA", "HPQ", "JPM"]
+
+    def compose(self) -> ComposeResult:
+        yield Static("포트폴리오 목록", id="portfolio-title")
+        with VerticalScroll(id="portfolio-list"):
+            for ticker in self.STOCK_LIST:
+                yield Button(f"{ticker}", id=f"btn-{ticker}", classes="portfolio-item")
+
+
+class AgentActivityWidget(Static):
+    """에이전트 활동 위젯"""
+
+    def get_activities_from_results(self):
+        """results 폴더에서 활동 내역 가져오기"""
+        activities = []
+        results_path = Path("results")
+
+        if not results_path.exists():
+            return activities
+
+        for ticker_dir in results_path.iterdir():
+            if ticker_dir.is_dir():
+                ticker = ticker_dir.name
+
+                for date_dir in ticker_dir.iterdir():
+                    if date_dir.is_dir():
+                        date = date_dir.name
+                        activities.append({"date": date, "ticker": ticker})
+
+        activities.sort(key=lambda x: x["date"], reverse=True)
+        return activities
+
+    def compose(self) -> ComposeResult:
+        yield Static("에이전트 활동", id="activity-title")
+        with VerticalScroll(id="activity-log"):
+            activities = self.get_activities_from_results()
+
+            if activities:
+                for activity in activities:
+                    label = f"{activity['date']} {activity['ticker']}"
+                    button_id = f"activity-{activity['ticker']}-{activity['date']}"
+                    yield Button(label, id=button_id, classes="activity-item")
+            else:
+                yield Static("활동 내역이 없습니다.", classes="activity-item")
+
+    def add_activity(self, message: str):
+        """새로운 활동 로그 추가"""
+        activity_log = self.query_one("#activity-log", VerticalScroll)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        activity_log.mount(Static(f"{timestamp}: {message}", classes="activity-item"))
+
+    def refresh_activities(self):
+        """활동 내역 새로고침"""
+        activity_log = self.query_one("#activity-log", VerticalScroll)
+        # 기존 항목 모두 제거
+        activity_log.remove_children()
+
+        # 새로운 활동 내역 추가
+        activities = self.get_activities_from_results()
+        if activities:
+            for activity in activities:
+                activity_log.mount(Static(activity, classes="activity-item"))
+        else:
+            activity_log.mount(Static("활동 내역이 없습니다.", classes="activity-item"))
+
+
+class MainDashboard(Screen):
+    """메인 대시보드 화면"""
+
     CSS = """
-    Screen {
+    MainDashboard {
         layout: vertical;
         background: $surface;
     }
 
-    #input-container {
-        layout: horizontal;
-        height: auto;
-        padding: 1 2;
+    #api-settings-panel {
+        height: 13;
         background: $boost;
         border: heavy $primary;
-        margin: 1;
+        padding: 1;
+        margin: 0 0 1 0;
     }
 
-    #charts-scroll {
+    #api-settings {
+        height: 100%;
+        scrollbar-size: 1 1;
+    }
+
+    #api-settings-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        height: 1;
+    }
+
+    #api-inputs-container {
+        layout: horizontal;
+        height: auto;
+    }
+
+    #google-api-section, #rapid-api-section {
+        width: 1fr;
+        height: auto;
+        padding: 0 1;
+    }
+
+    .api-label {
+        color: $text;
+        text-style: bold;
+        height: 1;
+    }
+
+    #google-api-input, #rapid-api-input {
+        width: 100%;
+    }
+
+    #api-buttons-container {
+        layout: horizontal;
+        height: auto;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #api-buttons-container > Button {
+        margin: 0 1;
+        height: 3;
+    }
+
+    #api-status {
+        margin-left: 2;
+        text-style: bold;
+        height: auto;
+    }
+
+    #main-content {
+        layout: horizontal;
         height: 1fr;
-        margin: 0 1 1 1;
+        align: center middle;
     }
 
-    .chart-container {
-        height: 20;
-        padding: 1 2;
-        background: $panel;
-        border: tall $accent;
+    #left-panel {
+        width: 40%;
+        height: 100%;
+        background: $boost;
+        border: heavy $primary;
+        padding: 1;
+    }
+
+    #portfolio-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
         margin-bottom: 1;
     }
 
-    Input {
-        width: 12;
-        margin-right: 1;
+    #portfolio-list {
+        height: 1fr;
         border: solid $accent;
+        padding: 1;
+        background: $panel;
+    }
+
+    .portfolio-item {
+        width: 100%;
+        height: 3;
+        margin: 0 0 1 0;
+    }
+
+    .portfolio-item:hover {
+        background: $accent;
+    }
+
+    #center-panel {
+        display: none;
+    }
+
+    #chart-area {
+        height: 1fr;
+    }
+
+    #right-panel {
+        width: 40%;
+        height: 100%;
+        background: $boost;
+        border: heavy $primary;
+        padding: 1;
+        margin: 0 0 0 2;
+    }
+
+    #activity-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #activity-log {
+        height: 1fr;
+        border: solid $accent;
+        padding: 1;
+        background: $panel;
+    }
+
+    .activity-item {
+        margin-bottom: 1;
+        color: $text;
+    }
+
+    #chart-header {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.current_ticker = "AAPL"
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        # API 설정 패널 (상단)
+        with Container(id="api-settings-panel"):
+            yield ApiSettingsWidget(id="api-settings")
+
+        with Horizontal(id="main-content"):
+            # 왼쪽 패널: 포트폴리오 목록 + 차트
+            with Vertical(id="left-panel"):
+                yield PortfolioWidget()
+                yield Static("차트 화면", id="chart-header")
+                with Container(id="chart-area"):
+                    yield StockChart(ticker=self.current_ticker, id="stock-chart")
+
+            # 오른쪽 패널: 에이전트 활동
+            with Vertical(id="right-panel"):
+                yield AgentActivityWidget(id="agent-activity")
+
+        yield Footer()
+
+    def on_mount(self):
+        """화면 로드 시 초기 데이터 로드"""
+        self.load_stock_data(self.current_ticker)
+
+    @on(Button.Pressed)
+    def on_button_pressed(self, event: Button.Pressed):
+        """버튼 클릭 처리"""
+        button_id = event.button.id
+
+        # API 설정 버튼
+        if button_id == "save-api-button":
+            api_widget = self.query_one("#api-settings", ApiSettingsWidget)
+            if api_widget.save_api_keys():
+                self.notify("API 키가 환경변수에 저장되었습니다.", severity="information")
+            else:
+                self.notify("저장할 API 키를 입력하세요.", severity="warning")
+
+        elif button_id == "clear-api-button":
+            api_widget = self.query_one("#api-settings", ApiSettingsWidget)
+            api_widget.clear_api_keys()
+            self.notify("API 키가 초기화되었습니다.", severity="information")
+
+        # 포트폴리오 버튼 클릭
+        elif button_id and button_id.startswith("btn-"):
+            ticker = button_id.replace("btn-", "")
+            # StockChartScreen으로 전환
+            self.app.push_screen(StockChartScreen(ticker))
+
+        # 활동 내역 버튼 클릭
+        elif button_id and button_id.startswith("activity-"):
+            # activity-{ticker}-{date} 형식 파싱
+            parts = button_id.replace("activity-", "").split("-")
+            if len(parts) >= 2:
+                ticker = parts[0]
+                date = "-".join(parts[1:])  # 날짜에 '-'가 포함되어 있으므로
+                # ReportScreen으로 전환
+                self.app.push_screen(ReportScreen(ticker, date))
+
+    @work(exclusive=True)
+    async def load_stock_data(self, ticker: str):
+        """주식 데이터 로드"""
+        try:
+            self.notify(f"{ticker} 데이터 로딩 중...", severity="information")
+
+            # 최근 30일간의 데이터 가져오기
+            to_date = datetime.now()
+            from_date = to_date - timedelta(days=30)
+
+            from_date_str = from_date.strftime("%Y%m%d")
+            to_date_str = to_date.strftime("%Y%m%d")
+
+            data = fetch_time_series_daily(ticker=ticker, date_from=from_date_str, date_to=to_date_str)
+
+            if data is None or (isinstance(data, pd.DataFrame) and data.empty):
+                self.notify(f"{ticker} 데이터가 비어있습니다. API 키를 확인하세요.", severity="warning")
+            else:
+                self.notify(f"{ticker} 데이터 로드 완료: {len(data)}개 행", severity="information")
+
+            chart = self.query_one("#stock-chart", StockChart)
+            chart.ticker = ticker
+            chart.update_chart(data)
+
+        except Exception as e:
+            self.notify(f"데이터 로딩 에러: {str(e)}", severity="error")
+
+
+class ReportScreen(Screen):
+    """보고서 목록 화면"""
+
+    CSS = """
+    ReportScreen {
+        layout: vertical;
         background: $surface;
     }
 
-    #ticker-input {
-        width: 12;
+    #report-header {
+        height: auto;
+        background: $boost;
+        padding: 1;
+        text-align: center;
     }
 
-    #date-from-input, #date-to-input {
-        width: 16;
+    #report-title {
+        text-style: bold;
+        color: $accent;
     }
 
-    Input:focus {
-        border: solid $success;
+    #report-list-container {
+        height: 1fr;
+        border: heavy $accent;
+        background: $panel;
+        padding: 2;
+        margin: 1;
     }
 
-    Button {
-        margin-right: 1;
-        min-width: 14;
-        border: solid $accent;
+    .report-item {
+        width: 100%;
+        height: 3;
+        margin: 0 0 1 0;
+    }
+
+    .report-item:hover {
+        background: $accent;
+    }
+
+    #button-container {
+        height: auto;
+        layout: horizontal;
+        padding: 1;
+        align: center middle;
+    }
+
+    #button-container > Button {
+        margin: 0 2;
     }
 
     Button:hover {
         background: $accent;
-        border: solid $accent-darken-1;
-    }
-
-    Button:focus {
-        text-style: bold;
-    }
-
-    Label {
-        padding-right: 1;
-        content-align: center middle;
-        text-style: bold;
-        color: $text;
-        min-width: 8;
-    }
-
-    StockChart {
-        border: none;
-        background: $panel;
     }
     """
 
-    # 키보드 단축키 바인딩
     BINDINGS = [
-        ("q", "quit", "Quit"),              # q 키를 누르면 종료
-        ("r", "refresh", "Refresh"),        # r 키를 누르면 새로고침
-        ("h", "command_palette", "Help"),   # h 키로 명령어 팔레트 열기
+        ("escape", "back", "Back"),
     ]
 
-    def __init__(self):
-        # 부모 클래스 초기화
+    def __init__(self, ticker: str, date: str):
         super().__init__()
-        self.current_ticker = None
+        self.ticker = ticker
+        self.date = date
 
-    def compose(self) -> ComposeResult: # UI 레이아웃을 구성하는 메서드
-        # 헤더 추가
+    def compose(self) -> ComposeResult:
         yield Header()
 
-        # 티커 심볼 입력
-        with Container(id="input-container"):
-            # 티커 레이블
-            yield Label("Ticker:")
-            # 티커 입력 필드
-            yield Input(placeholder="티커 심볼", id="ticker-input", value="AAPL")
-            # 시작 날짜 레이블
-            yield Label("From:")
-            # 시작 날짜 입력 필드
-            yield Input(placeholder="YYYYMMDD", id="date-from-input", value="")
-            # 종료 날짜 레이블
-            yield Label("To:")
-            # 종료 날짜 입력 필드
-            yield Input(placeholder="YYYYMMDD", id="date-to-input", value="")
-            # 데이터 가져오기 버튼
-            yield Button("Fetch All Data", id="fetch-button", variant="primary")
+        with Container(id="report-header"):
+            yield Static(f"{self.ticker} - {self.date} 보고서 목록", id="report-title")
 
-        # 차트들이 표시되는 스크롤 영역
-        with VerticalScroll(id="charts-scroll"):
-            # 5분 간격 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="5 Min Interval", chart_type="close", id="chart-5min")
+        with VerticalScroll(id="report-list-container"):
+            yield Static("사용 가능한 보고서:", id="report-list-title")
+            for report_info in self.get_available_reports():
+                file_id = report_info['filename'].replace('.', '_')
+                yield Button(
+                    report_info["display_name"],
+                    id=f"report-{file_id}",
+                    classes="report-item"
+                )
 
-            # 일간 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="Daily", chart_type="close", id="chart-daily")
+        with Container(id="button-container"):
+            yield Button("← Back", id="back-button", variant="warning")
 
-            # 주간 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="Weekly", chart_type="close", id="chart-weekly")
-
-            # 월간 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="Monthly", chart_type="close", id="chart-monthly")
-
-            # 일간 OHLC 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="Daily OHLC", chart_type="ohlc", id="chart-daily-ohlc")
-
-            # 일간 거래량 차트
-            with Container(classes="chart-container"):
-                yield StockChart(title="Daily Volume", chart_type="volume", id="chart-daily-volume")
-
-        # 푸터 추가
         yield Footer()
 
-    @on(Button.Pressed, "#fetch-button")
-    async def fetch_stock_data(self) -> None: # Fetch Data 버튼이 눌렸을 때 호출되는 메서드
-        # UI 요소들 가져오기
-        ticker_input = self.query_one("#ticker-input", Input)
-        date_from_input = self.query_one("#date-from-input", Input)
-        date_to_input = self.query_one("#date-to-input", Input)
+    def get_available_reports(self):
+        """사용 가능한 보고서 목록 가져오기"""
+        report_path = Path(f"results/{self.ticker}/{self.date}/reports/")
+        reports = []
 
-        # 티커 심볼 가져오기
-        ticker = ticker_input.value.strip().upper()
-        date_from = date_from_input.value.strip()
-        date_to = date_to_input.value.strip()
+        if not report_path.exists():
+            return reports
 
-        if not ticker:
-            self.notify("티커 심볼을 입력하세요.", severity="warning")
-            return
+        report_files = {
+            "market_report.md": "시장 분석 보고서",
+            "investment_plan.md": "투자 계획",
+        }
 
-        # 현재 티커 저장
-        self.current_ticker = ticker
+        for filename, display_name in report_files.items():
+            file_path = report_path / filename
+            if file_path.exists():
+                reports.append({
+                    "filename": filename,
+                    "display_name": display_name,
+                    "path": str(file_path)
+                })
 
-        # 데이터 로딩 시작 알림
-        period_msg = ""
-        if date_from or date_to:
-            period_msg = f" ({date_from or 'all'} ~ {date_to or 'now'})"
-        self.notify(f"{ticker}{period_msg} 데이터를 가져오는 중...", severity="information")
+        return reports
+
+    @on(Button.Pressed)
+    def on_button_pressed(self, event: Button.Pressed):
+        """버튼 클릭 처리"""
+        button_id = event.button.id
+
+        if button_id == "back-button":
+            self.app.pop_screen()
+        elif button_id and button_id.startswith("report-"):
+            # ID에서 파일명을 복원 (언더스코어를 점으로 변경)
+            file_id = button_id.replace("report-", "")
+            filename = file_id.replace('_', '.')
+            self.app.push_screen(ReportDetailScreen(self.ticker, self.date, filename))
+
+    def action_back(self):
+        """ESC 키로 돌아가기"""
+        self.app.pop_screen()
+
+
+class ReportDetailScreen(Screen):
+    """보고서 상세 화면"""
+
+    CSS = """
+    ReportDetailScreen {
+        layout: vertical;
+        background: $surface;
+    }
+
+    #detail-header {
+        height: auto;
+        background: $boost;
+        padding: 1;
+        text-align: center;
+    }
+
+    #detail-title {
+        text-style: bold;
+        color: $accent;
+    }
+
+    #detail-content {
+        height: 1fr;
+        border: heavy $accent;
+        background: $panel;
+        padding: 2;
+        margin: 1;
+    }
+
+    #button-container {
+        height: auto;
+        layout: horizontal;
+        padding: 1;
+        align: center middle;
+    }
+
+    #button-container > Button {
+        margin: 0 2;
+    }
+
+    Button:hover {
+        background: $accent;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "back", "Back"),
+    ]
+
+    def __init__(self, ticker: str, date: str, filename: str):
+        super().__init__()
+        self.ticker = ticker
+        self.date = date
+        self.filename = filename
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        # 파일명에 따른 표시 이름
+        display_names = {
+            "market_report.md": "시장 분석 보고서",
+            "investment_plan.md": "투자 계획",
+        }
+
+        display_name = display_names.get(self.filename, self.filename)
+
+        with Container(id="detail-header"):
+            yield Static(f"{self.ticker} - {self.date} | {display_name}", id="detail-title")
+
+        with VerticalScroll(id="detail-content"):
+            yield Static(self.load_report_content(), id="detail-text")
+
+        with Container(id="button-container"):
+            yield Button("← Back", id="back-button", variant="warning")
+
+        yield Footer()
+
+    def load_report_content(self) -> str:
+        """보고서 내용 로드"""
+        report_path = Path(f"results/{self.ticker}/{self.date}/reports/{self.filename}")
+
+        if not report_path.exists():
+            return "보고서를 찾을 수 없습니다."
 
         try:
-            # 5분 간격 데이터 가져오기 (날짜별 조회는 date 파라미터 사용)
-            self.notify("5분 간격 데이터 로딩 중...", severity="information")
-            if date_from and len(date_from) == 8:
-                # 특정 날짜 지정
-                data_5min = fetch_time_series_intraday(ticker=ticker, interval="5min", date=date_from)
+            with open(report_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            return f"보고서를 읽는 중 오류가 발생했습니다: {str(e)}"
+
+    @on(Button.Pressed, "#back-button")
+    def go_back(self):
+        """목록으로 돌아가기"""
+        self.app.pop_screen()
+
+    def action_back(self):
+        """ESC 키로 돌아가기"""
+        self.app.pop_screen()
+
+
+class StockChartScreen(Screen):
+
+    CSS = """
+    StockChartScreen {
+        layout: vertical;
+        background: $surface;
+    }
+
+    #chart-header {
+        height: auto;
+        background: $boost;
+        padding: 1;
+        text-align: center;
+    }
+
+    #chart-title {
+        text-style: bold;
+        color: $accent;
+    }
+
+    #chart-main {
+        height: 1fr;
+        border: heavy $accent;
+        background: $panel;
+        padding: 1;
+        margin: 1;
+    }
+
+    #button-container {
+        height: auto;
+        layout: horizontal;
+        padding: 1;
+        align: center middle;
+    }
+
+    #button-container > Button {
+        margin: 0 2;
+    }
+
+    Button:hover {
+        background: $accent;
+    }
+    """
+
+    BINDINGS = [
+        ("escape", "back", "Back"),
+    ]
+
+    def __init__(self, ticker: str):
+        super().__init__()
+        self.ticker = ticker
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        with Container(id="chart-header"):
+            yield Static(f" {self.ticker} Stock Chart", id="chart-title")
+
+        with Container(id="chart-main"):
+            yield StockChart(ticker=self.ticker, id="stock-chart")
+
+        with Container(id="button-container"):
+            yield Button("← Back to List", id="back-button", variant="warning")
+
+        yield Footer()
+
+    def on_mount(self):
+        """화면이 로드되면 주식 데이터를 가져옴"""
+        self.load_stock_data()
+
+    @work(exclusive=True)
+    async def load_stock_data(self):
+        """주식 데이터 로드"""
+        try:
+            self.notify(f"{self.ticker} 데이터 로딩 중...", severity="information")
+
+            # 최근 30일간의 데이터 가져오기
+            to_date = datetime.now()
+            from_date = to_date - timedelta(days=30)
+
+            from_date_str = from_date.strftime("%Y%m%d")
+            to_date_str = to_date.strftime("%Y%m%d")
+
+            data = fetch_time_series_daily(ticker=self.ticker, date_from=from_date_str, date_to=to_date_str)
+
+            if data is None or (isinstance(data, pd.DataFrame) and data.empty):
+                self.notify(f"{self.ticker} 데이터가 비어있습니다. API 키를 확인하세요.", severity="warning")
             else:
-                # 전체 데이터
-                data_5min = fetch_time_series_intraday(ticker=ticker, interval="5min")
-            chart_5min = self.query_one("#chart-5min", StockChart)
-            chart_5min.data = data_5min
+                self.notify(f"{self.ticker} 데이터 로드 완료: {len(data)}개 행", severity="information")
 
-            # 일간 데이터 가져오기
-            self.notify("일간 데이터 로딩 중...", severity="information")
-            data_daily = fetch_time_series_daily(ticker=ticker, date_from=date_from, date_to=date_to)
-            chart_daily = self.query_one("#chart-daily", StockChart)
-            chart_daily.data = data_daily
-
-            chart_daily_ohlc = self.query_one("#chart-daily-ohlc", StockChart)
-            chart_daily_ohlc.data = data_daily
-
-            chart_daily_volume = self.query_one("#chart-daily-volume", StockChart)
-            chart_daily_volume.data = data_daily
-
-            # 주간 데이터 가져오기
-            self.notify("주간 데이터 로딩 중...", severity="information")
-            data_weekly = fetch_time_series_weekly(ticker=ticker, date_from=date_from, date_to=date_to)
-            chart_weekly = self.query_one("#chart-weekly", StockChart)
-            chart_weekly.data = data_weekly
-
-            # 월간 데이터 가져오기
-            self.notify("월간 데이터 로딩 중...", severity="information")
-            data_monthly = fetch_time_series_monthly(ticker=ticker, date_from=date_from, date_to=date_to)
-            chart_monthly = self.query_one("#chart-monthly", StockChart)
-            chart_monthly.data = data_monthly
-
-            self.notify(f"{ticker} 모든 데이터 로딩 완료!", severity="success")
+            chart = self.query_one("#stock-chart", StockChart)
+            chart.update_chart(data)
 
         except Exception as e:
-            self.notify(f"에러: {str(e)}", severity="error")
+            self.notify(f"데이터 로딩 에러: {str(e)}", severity="error")
 
-    def action_refresh(self) -> None: # r키를 누를 시 새로고침
-        if self.current_ticker:
-            self.notify(f"{self.current_ticker} 데이터를 다시 가져옵니다...", severity="information")
-            self.fetch_stock_data()
+    @on(Button.Pressed, "#back-button")
+    def go_back(self):
+        """목록으로 돌아가기"""
+        self.app.pop_screen()
 
-    def action_command_palette(self) -> None: # h 키로 명령어 팔레트 열기
-        """명령어 팔레트 모달 표시"""
-        self.push_screen(CommandPalette())
+    def action_back(self):
+        """ESC 키로 돌아가기"""
+        self.app.pop_screen()
+
+
+class StockViewerApp(App):
+    """메인 애플리케이션"""
+
+    TITLE = "Multi-Trading Agents Dashboard"
+
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+    ]
+
+    def on_mount(self):
+        """앱 시작 시 메인 대시보드 화면 표시"""
+        self.push_screen(MainDashboard())
 
 
 def main():
-    app = StockVisualizerApp()
+    app = StockViewerApp()
     app.run()
 
 
