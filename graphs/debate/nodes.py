@@ -104,7 +104,7 @@ class ManagerNode(BaseNode):
         except Exception as e:  # 로그 저장 실패 시
             print("[ManagerNode][log]", e)  # 에러 메시지 출력
 
-        # 4. 투자 계획을 마크다운 파일로 저장
+        # 4. 투자 계획을 마크다운 파일로 저장 및 Context에 저장
         try:  # 예외 처리
             report_dir_str = context.get_cache("report_dir")  # report_dir 캐시 확인
             if report_dir_str:  # report_dir이 있으면
@@ -134,8 +134,14 @@ class ManagerNode(BaseNode):
                 plan.get("plan", ""),  # 구체적인 실행 계획
             ]
 
+            # 마크다운 내용을 문자열로 변환
+            investment_plan_content = "\n".join(md)
+
             # 마크다운 파일 저장 (investment_plan.md)
-            (reports_dir / "investment_plan.md").write_text("\n".join(md), encoding="utf-8")  # results/GOOGL/2025-03-28/reports/investment_plan.md
+            (reports_dir / "investment_plan.md").write_text(investment_plan_content, encoding="utf-8")  # results/GOOGL/2025-03-28/reports/investment_plan.md
+
+            # Context의 reports에 투자 계획 저장 (다른 에이전트에서 사용 가능)
+            context.set_report("investment_plan", investment_plan_content)
 
         except Exception as e:  # 마크다운 저장 실패 시
             print("[ManagerNode][save plan]", e)  # 에러 메시지 출력
