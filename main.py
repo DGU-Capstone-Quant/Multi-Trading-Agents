@@ -1,11 +1,12 @@
 ﻿# main.py
-from graphs.debate.factory import create_debate_graph
+from graphs.analyst.graph import create_analyst_graph
+from modules.context import Context
 
-if __name__ == "__main__":
-    graph, ctx = create_debate_graph(
-        ticker="GOOGL",
-        trade_date="2025-03-28",
-        rounds=2
-    )
-
-    graph.run(ctx)
+context = Context()
+context.set_cache(ticker="AAPL")
+context.set_config(analysis_tasks = ["financial",])
+graph = create_analyst_graph(context)
+print()
+graph.run(context)
+print()
+print(context.get_report("financial"))
