@@ -2,7 +2,7 @@
 
 class Context:
     def __init__(self):
-        self.reports = {}       # 보고서 저장용:    에이전트가 생성하고 읽을 중요한 정보를 저장
+        self.reports: dict[str, dict] = {}       # 보고서 저장용:    에이전트가 생성하고 읽을 중요한 정보를 저장
         self.translations = {}  # 번역 저장용:      사용자에게 한국어로 출력할 번역된 문자열 저장
         self.config = {}        # 설정 저장용:      에이전트의 동작이나 api키 등을 저장
         self.cache = {}         # 캐시 저장용:      에이전트끼리 공유할 임시 데이터 저장
@@ -12,7 +12,17 @@ class Context:
         self.reports[key] = report
 
     def get_report(self, key: str) -> str:
-        return self.reports.get(key, f"No report found for key: {key}")
+        report = self.reports.get(key, {})
+        if not report:
+            return ""
+
+        report_str = report.get("title", "") + "\n\n" +\
+                    "Key Considerations:\n" + report.get("key_considerations", "") + "\n\n" +\
+                    "Indicators Table:\n" + report.get("indicators_table", "") + "\n\n" +\
+                    "Detailed Analysis:\n" + report.get("detailed_analysis", "") + "\n\n" +\
+                    "Conclusion:\n" + report.get("conclusion", "") + "\n\n" +\
+                    "Recommendation:\n" + report.get("recommendation", "")
+        return report_str
     
     def set_translation(self, key: str, translation: str):
         self.translations[key] = translation
