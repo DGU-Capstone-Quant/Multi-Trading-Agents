@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 from io import StringIO
 from datetime import datetime as dt
+import time
 
 
 URL = "https://alpha-vantage.p.rapidapi.com/query"
@@ -46,11 +47,18 @@ def _get_response_by_query(**params) -> dict:
     if not apikey:
         raise ValueError("API key is required: 환경변수 RAPID_API_KEY에 alpha-vantage용 RapidAPI 키를 설정해야 함")
     filtered_params = {k: v for k, v in params.items() if v != ""}
-    res = requests.get(url=URL, params=filtered_params,
-                       headers={
-                            "x-rapidapi-host": "alpha-vantage.p.rapidapi.com",
-                            "x-rapidapi-key": apikey
-                        })
+
+    while True:
+        res = requests.get(url=URL, params=filtered_params,
+                        headers={
+                                "x-rapidapi-host": "alpha-vantage.p.rapidapi.com",
+                                "x-rapidapi-key": apikey
+                            })
+        if res.text.startswith('{"message":'):
+            time.sleep(12)  # alpha-vantage free tier 제한에 걸릴 경우 대기 후 재시도
+            continue
+        break
+        
     
     file_path = _get_file_path_by_query(**params)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
