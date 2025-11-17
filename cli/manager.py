@@ -1,14 +1,10 @@
-"""토론 실행 매니저 모듈"""
-
+"""토론 실행 매니저"""
 import os
 from typing import List, Dict
-
 from modules.context import Context
 
 
 class DebateManager:
-    """자동 토론 실행 관리자"""
-
     def __init__(self, context: Context, date_ticker_map: Dict[str, List[str]]):
         self.context = context
         self.date_ticker_map = date_ticker_map
@@ -16,78 +12,56 @@ class DebateManager:
         self.current_date_index = 0
 
     def get_next_debate_items(self) -> List[Dict[str, str]]:
-        """
-        다음 토론 대상 가져오기
-        """
         if not self.sorted_dates:
             return []
 
-        # 모든 trade_date를 다 처리했으면 처음으로 돌아감
         if self.current_date_index >= len(self.sorted_dates):
             self.current_date_index = 0
 
-        # 현재 trade_date
-        current_trade_date = self.sorted_dates[self.current_date_index]
-
-        # 현재 trade_date의 모든 ticker
-        tickers = self.date_ticker_map[current_trade_date]
-
-        # 다음 trade_date로 이동
+        current_date = self.sorted_dates[self.current_date_index]
         self.current_date_index += 1
 
-        # 모든 ticker에 대한 토론 항목 생성
-        return [
-            {"ticker": ticker, "trade_date": current_trade_date}
-            for ticker in tickers
-        ]
+        return [{"ticker": t, "trade_date": current_date} for t in self.date_ticker_map[current_date]]
 
     def run_debate(self, ticker: str, trade_date: str, rounds: int = 2) -> bool:
-        """
-        토론 실행
-        """
-        try:
-            # API 키 확인
-            if not os.getenv("RAPID_API_KEY"):
-                raise ValueError("RAPID_API_KEY가 설정되지 않았습니다.")
+        if not os.getenv("RAPID_API_KEY") or not os.getenv("GOOGLE_API_KEY"):
+            raise ValueError("API 키가 설정되지 않았습니다.")
 
-            if not os.getenv("GOOGLE_API_KEY"):
-                raise ValueError("GOOGLE_API_KEY가 설정되지 않았습니다.")
+        self.context.set_cache(ticker=ticker, trade_date=trade_date, rounds=rounds)
 
-            # Context에 필요한 정보 설정
-            self.context.set_cache(
-                ticker=ticker,
-                trade_date=trade_date,
-                rounds=rounds
-            )
+        from graphs.debate.factory import create_debate_graph, _resolve_report_path, _read
+        from graphs.trader.factory import create_trader_graph
 
-            # Debate Graph 실행
-            from graphs.debate.factory import create_debate_graph, _resolve_report_path, _read
+        # market_report 로드 및 저장
+        market_report = _read(_resolve_report_path(ticker, trade_date))
+        self.context.set_report("market_report", market_report)
+        self.context.set_report(f"{ticker}_{trade_date}_market_report", market_report)
 
-            # market_report 로드
-            rp = _resolve_report_path(ticker, trade_date)
-            self.context.set_report("market_report", _read(rp))
+        # Debate 실행
+        create_debate_graph(self.context).run(self.context)
+        self._save_report("investment_plan", ticker, trade_date)
 
-            debate_graph = create_debate_graph(self.context)
-            debate_graph.run(self.context)
+        # Trader 실행
+        create_trader_graph().run(self.context)
+        self._save_cache("trader_decision", ticker, trade_date)
+        self._save_cache("trader_recommendation", ticker, trade_date)
 
-            # Trader Graph 실행
-            from graphs.trader.factory import create_trader_graph
+        self._add_completed_debate(ticker, trade_date)
+        return True
 
-            trader_graph = create_trader_graph()
-            trader_graph.run(self.context)
+    def _save_report(self, report_type: str, ticker: str, trade_date: str):
+        content = self.context.get_report(report_type)
+        if content:
+            self.context.set_report(f"{ticker}_{trade_date}_{report_type}", content)
 
-            # 완료된 토론에 추가
-            self._add_completed_debate(ticker, trade_date)
+    def _save_cache(self, cache_key: str, ticker: str, trade_date: str):
+        content = self.context.get_cache(cache_key, "")
+        if content:
+            self.context.set_cache(**{f"{ticker}_{trade_date}_{cache_key}": content})
 
-            return True
-
-        except Exception:
-            raise
-
-    def _add_completed_debate(self, ticker: str, trade_date: str) -> None:
-        """완료된 토론에 추가"""
-        completed_debates = self.context.get_cache("completed_debates", [])
-        if not any(d["ticker"] == ticker and d["trade_date"] == trade_date for d in completed_debates):
-            completed_debates.append({"ticker": ticker, "trade_date": trade_date})
-            completed_debates.sort(key=lambda x: x["trade_date"], reverse=True)
-            self.context.set_cache(completed_debates=completed_debates)
+    def _add_completed_debate(self, ticker: str, trade_date: str):
+        debates = self.context.get_cache("completed_debates", [])
+        if not any(d["ticker"] == ticker and d["trade_date"] == trade_date for d in debates):
+            debates.append({"ticker": ticker, "trade_date": trade_date})
+            debates.sort(key=lambda x: x["trade_date"], reverse=True)
+            self.context.set_cache(completed_debates=debates)

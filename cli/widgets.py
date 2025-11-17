@@ -50,17 +50,11 @@ class PortfolioWidget(BaseWidget):
 
         # 포트폴리오 ticker 목록 가져오기
         tickers = self.context.get_cache("portfolio", [])
-        completed_debates = self.context.get_cache("completed_debates", [])
 
         if tickers:
             for ticker in tickers:
-                # 최근 trade_date 찾기
-                ticker_debates = [d for d in completed_debates if d["ticker"] == ticker]
-                latest_trade_date = ticker_debates[0]["trade_date"] if ticker_debates else ""
-
-                label = f"{ticker} (최근: {latest_trade_date})" if latest_trade_date else ticker
                 await portfolio_list.mount(
-                    Button(label, id=f"portfolio-{ticker}", classes="portfolio-item")
+                    Button(ticker, id=f"portfolio-{ticker}", classes="portfolio-item")
                 )
         else:
             await portfolio_list.mount(Static("보유 종목 없음", classes="portfolio-item"))
