@@ -104,46 +104,29 @@ class ManagerNode(BaseNode):
         except Exception as e:  # 로그 저장 실패 시
             print("[ManagerNode][log]", e)  # 에러 메시지 출력
 
-        # 4. 투자 계획을 마크다운 파일로 저장 및 Context에 저장
-        try:  # 예외 처리
-            report_dir_str = context.get_cache("report_dir")  # report_dir 캐시 확인
-            if report_dir_str:  # report_dir이 있으면
-                reports_dir = Path(report_dir_str)  # 그대로 사용
-            else:  # report_dir이 없으면
-                report_path_str = context.get_cache("report_path")  # report_path 확인
-                reports_dir = Path(report_path_str).parent if report_path_str else (  # report_path의 부모 디렉토리 사용
-                    RESULTS_DIR  # 없으면 기본 경로 사용
-                    / context.get_cache("ticker", "UNKNOWN")  # results/GOOGL
-                    / context.get_cache("trade_date", "UNKNOWN_DATE")  # results/GOOGL/2025-03-28
-                    / "reports"  # results/GOOGL/2025-03-28/reports
-                )
+        # 4. 투자 계획을 Context에만 저장 (파일로는 저장하지 않음)
+        try:
+            plan = context.get_cache("manager_decision") or {}
 
-            reports_dir.mkdir(parents=True, exist_ok=True)  # 디렉토리 생성
-            plan = context.get_cache("manager_decision") or {}  # 매니저 결정 가져오기
-
-            # 마크다운 파일 내용 구성
+            # 마크다운 내용 구성
             md = [
-                f"# Investment Plan ({context.get_cache('ticker','UNKNOWN')} / {context.get_cache('trade_date','UNKNOWN_DATE')})",  # 제목
+                f"# Investment Plan ({context.get_cache('ticker','UNKNOWN')} / {context.get_cache('trade_date','UNKNOWN_DATE')})",
                 "",
-                f"**Decision:** {plan.get('decision','')}",  # 결정 (BUY/SELL/HOLD)
+                f"**Decision:** {plan.get('decision','')}",
                 "",
-                "## Rationale",  # 이유 섹션
-                plan.get("rationale", ""),  # 결정 이유
-                "",  # 빈 줄
-                "## Plan",  # 계획 섹션
-                plan.get("plan", ""),  # 구체적인 실행 계획
+                "## Rationale",
+                plan.get("rationale", ""),
+                "",
+                "## Plan",
+                plan.get("plan", ""),
             ]
 
-            # 마크다운 내용을 문자열로 변환
             investment_plan_content = "\n".join(md)
 
-            # 마크다운 파일 저장 (investment_plan.md)
-            (reports_dir / "investment_plan.md").write_text(investment_plan_content, encoding="utf-8")  # results/GOOGL/2025-03-28/reports/investment_plan.md
-
-            # Context의 reports에 투자 계획 저장 (다른 에이전트에서 사용 가능)
+            # Context의 reports에만 저장 (파일은 생성하지 않음)
             context.set_report("investment_plan", investment_plan_content)
 
-        except Exception as e:  # 마크다운 저장 실패 시
-            print("[ManagerNode][save plan]", e)  # 에러 메시지 출력
+        except Exception as e:
+            print("[ManagerNode][save plan]", e)
 
         return context  # 업데이트된 Context 반환

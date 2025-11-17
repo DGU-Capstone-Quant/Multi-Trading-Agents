@@ -1,0 +1,1 @@
+Okay, I will start by retrieving the stock data for GOOGL and then calculate the technical indicators. What is the start date and end date for the stock data?
