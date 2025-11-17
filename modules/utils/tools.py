@@ -16,27 +16,6 @@ def _get_func_dict(func, desc: str, params: dict, context_params: dict) -> dict:
 
 
 ### Financial Analysis Tools
-def get_latest_qoute(ticker: str, date: str="", apikey: str="") -> dict:
-    df = fetch_time_series_intraday(ticker=ticker, interval="5min", date=date, apikey=apikey)
-    df = df.sort_values(by='timestamp', ascending=False).reset_index(drop=True)
-    return {
-        'open': df['open'].iloc[-1],
-        'high': max(df['high']),
-        'low': min(df['low']),
-        'latest_price': df['close'].iloc[0],
-        'volume': sum(df['volume']),
-    }
-def get_latest_qoute_func():
-    desc = "Fetch the latest stock quote for a given ticker symbol."
-    params = {}
-    context_params = {
-        'ticker': 'ticker',
-        'date': 'date',
-        'apikey': 'apikey',
-    }
-    return _get_func_dict(get_latest_qoute, desc, params, context_params)
-
-
 def get_price_summary_for_date(ticker: str, date: str="", apikey: str="") -> dict:
     df = fetch_time_series_daily(ticker=ticker, days=7, date_to=date, apikey=apikey)
     return {
@@ -55,6 +34,29 @@ def get_price_summary_for_date_func():
         'apikey': 'apikey',
     }
     return _get_func_dict(get_price_summary_for_date, desc, params, context_params)
+
+
+def get_latest_qoute(ticker: str, date: str="", apikey: str="") -> dict:
+    df = fetch_time_series_intraday(ticker=ticker, interval="5min", date=date, apikey=apikey)
+    if df.empty:
+        return get_price_summary_for_date(ticker=ticker, date=date, apikey=apikey)
+    df = df.sort_values(by='timestamp', ascending=False).reset_index(drop=True)
+    return {
+        'open': df['open'].iloc[-1],
+        'high': max(df['high']),
+        'low': min(df['low']),
+        'latest_price': df['close'].iloc[0],
+        'volume': sum(df['volume']),
+    }
+def get_latest_qoute_func():
+    desc = "Fetch the latest stock quote for a given ticker symbol."
+    params = {}
+    context_params = {
+        'ticker': 'ticker',
+        'date': 'date',
+        'apikey': 'apikey',
+    }
+    return _get_func_dict(get_latest_qoute, desc, params, context_params)
 
 
 def get_price_summary_for_week(ticker: str, date: str="", apikey: str="") -> dict:
@@ -116,17 +118,17 @@ def get_historical_highs_lows_func():
     return _get_func_dict(get_historical_highs_lows, desc, params, context_params)
 
 
-def calculate_moving_average(ticker: str, days: int, date: str="", apikey: str="") -> float:
-    df_daily = fetch_time_series_daily(ticker=ticker, days=days, date_to=date, apikey=apikey)
-    latest_price = get_latest_qoute(ticker=ticker, date=date, apikey=apikey)['latest_price']
-    # df is descending order by timestamp
+def calculate_moving_average(ticker: str, days: int, date: str="", apikey: str="") -> dict:
+    df_daily = fetch_time_series_daily(ticker=ticker, days=days*2, date_to=date, apikey=apikey)
+    df_daily = df_daily.sort_values(by='timestamp')  # ascending order for calculation
+    moving_average = df_daily['close'].rolling(window=days).mean().iloc[-1]
     return {
-        'moving_average': df_daily['close'].head(days).mean(),
-        'price_on_date': latest_price,
-        'position': "above" if latest_price > df_daily['close'].head(days).mean() else "below"
+        'moving_average': moving_average,
+        'price_on_date': df_daily['close'].iloc[-1],
+        'position': 'above' if df_daily['close'].iloc[-1] > moving_average else 'below',
     }
 def calculate_moving_average_func():
-    desc = "Calculate the moving average over a specified number of days for a given ticker symbol and compare it to the latest price."
+    desc = "Calculate the moving average for a given ticker symbol over a specified number of days."
     params = {
         'days': "number of days for moving average calculation, type: int"
     }
@@ -180,7 +182,7 @@ def calculate_adx(ticker: str, period: int=14, date: str="", apikey: str="") -> 
     ], axis=1).max(axis=1)
 
     df_daily['plus_dm'] = df_daily['high'].diff()
-    df_daily['minus_dm'] = df_daily['low'].diff().abs()
+    df_daily['minus_dm'] = df_daily['low'].shift(1) - df_daily['low']
     df_daily.loc[df_daily['plus_dm'] < 0, 'plus_dm'] = 0
     df_daily.loc[df_daily['minus_dm'] < 0, 'minus_dm'] = 0
 
