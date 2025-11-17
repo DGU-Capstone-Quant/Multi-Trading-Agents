@@ -83,16 +83,17 @@ class AnalystAgent(Agent):
             self.history[-1] += f"Tool {tool_name} not found.\n"
             return
 
-        parameters = {x['parameter_name']: x['value'] for x in res.content.get("parameters", [])}
-        parameters = {k: v for k, v in parameters.items() if k in self.tools[tool_name]['params']}
-        parameters.update(self._get_context_parameters(tool_name, context))
+        params = {x['parameter_name']: x['value'] for x in res.content.get("parameters", [])}
+        params = {k: v for k, v in params.items() if k in self.tools[tool_name]['params']}
+        all_params = {**params, **self._get_context_parameters(tool_name, context)}
 
-        tool_result = self._call_tool(tool_name, parameters)
+        tool_result = self._call_tool(tool_name, all_params)
         self._add_history(
             "--- TOOL USAGE ---\n" +\
-            f"Used tool: {tool_name}\n" +\
-            f"Tool description: {self.tools[tool_name]['desc']}\n" +\
-            f"Result: {tool_result}\n"
+            f"REASONING: {res.content.get('reasoning')}\n" +\
+            f"TOOL: {tool_name}\n" +\
+            f"PARAMETERS: {params}\n" +\
+            f"RESULT: {tool_result}\n"
         )
 
         # for debug: 
@@ -105,7 +106,9 @@ class AnalystAgent(Agent):
             schema=ReportSchema,
             deep=True
         )
-        context.set_report(self.task, res.content)
+        ticker = context.get_cache("ticker", "")
+        date = context.get_cache("date", "20251101T0000")
+        context.set_report(ticker, date, self.task, res.content)
 
     def run(self, context: Context) -> Context:
         if len(self.history) == 0:
