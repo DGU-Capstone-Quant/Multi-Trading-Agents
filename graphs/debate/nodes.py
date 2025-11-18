@@ -107,10 +107,12 @@ class ManagerNode(BaseNode):
         # 4. 투자 계획을 Context에만 저장 (파일로는 저장하지 않음)
         try:
             plan = context.get_cache("manager_decision") or {}
+            ticker = context.get_cache("ticker", "UNKNOWN")
+            trade_date = context.get_cache("trade_date", "UNKNOWN_DATE")
 
             # 마크다운 내용 구성
             md = [
-                f"# Investment Plan ({context.get_cache('ticker','UNKNOWN')} / {context.get_cache('trade_date','UNKNOWN_DATE')})",
+                f"# Investment Plan ({ticker} / {trade_date})",
                 "",
                 f"**Decision:** {plan.get('decision','')}",
                 "",
@@ -123,8 +125,8 @@ class ManagerNode(BaseNode):
 
             investment_plan_content = "\n".join(md)
 
-            # Context의 reports에만 저장 (파일은 생성하지 않음)
-            context.set_report("investment_plan", investment_plan_content)
+            # Context의 reports에 저장 (파일은 생성하지 않음)
+            context.set_report(ticker, trade_date, "investment_plan", investment_plan_content)
 
         except Exception as e:
             print("[ManagerNode][save plan]", e)

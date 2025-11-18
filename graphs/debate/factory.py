@@ -1,16 +1,24 @@
 # graphs/debate/factory.py
 
 from pathlib import Path
+from datetime import datetime as dt
 from modules.graph.graph import Graph
 from graphs.debate.nodes import BullNode, BearNode, ManagerNode
 from modules.context import Context
 
 # 유틸리티 함수들
+def _convert_date_to_dir_format(trade_date: str) -> str:
+    """trade_date를 디렉토리 형식(YYYY-MM-DD)으로 변환"""
+    date_obj = dt.strptime(trade_date, "%Y%m%dT%H%M")
+    return date_obj.strftime("%Y-%m-%d")
+
 def _primary_report_path(ticker: str, trade_date: str) -> Path:
-    return Path("results") / ticker / trade_date / "market_report.md"
+    dir_date = _convert_date_to_dir_format(trade_date)
+    return Path("results") / ticker / dir_date / "market_report.md"
 
 def _fallback_report_path(ticker: str, trade_date: str) -> Path:
-    return Path("results") / ticker / trade_date / "reports" / "market_report.md"
+    dir_date = _convert_date_to_dir_format(trade_date)
+    return Path("results") / ticker / dir_date / "reports" / "market_report.md"
 
 def _resolve_report_path(ticker: str, trade_date: str) -> Path:
     p1 = _primary_report_path(ticker, trade_date)  # Primary 경로 시도
@@ -32,11 +40,11 @@ def create_context(ticker: str, trade_date: str, rounds: int = 1) -> Context:
 
     ctx = Context()  # 빈 Context 생성
 
-    # 리포트 데이터 저장 (Context.reports에 저장)
-    ctx.set_report("market_report", _read(rp))  # 마켓 리포트 읽어서 저장
-    # ctx.set_report("sentiment_report", "(auto) none")  # 감정 분석
-    # ctx.set_report("news_report", "(auto) none")  # 뉴스 리포트
-    # ctx.set_report("fundamentals_report", "(auto) none")  # 펀더멘털 분석
+    # 리포트 데이터 저장
+    ctx.set_report(ticker, trade_date, "market_report", _read(rp))
+    # ctx.set_report(ticker, trade_date, "sentiment_report", "(auto) none")
+    # ctx.set_report(ticker, trade_date, "news_report", "(auto) none")
+    # ctx.set_report(ticker, trade_date, "fundamentals_report", "(auto) none")
 
     # 캐시 데이터 저장
     ctx.set_cache(
@@ -66,7 +74,7 @@ def create_debate_graph(ctx: Context) -> Graph:
     mgr = ManagerNode("Manager")  # Manager 노드 생성
 
     # 2. 그래프 생성 및 노드 추가
-    g = Graph(bull)  # Graph 생성 (시작 노드: Bull)
+    g = Graph("DebateGraph", bull)  # Graph 생성
     g.add_node(bear)  # Bear 노드 추가
     g.add_node(mgr)  # Manager 노드 추가
 

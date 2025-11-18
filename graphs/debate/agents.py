@@ -54,12 +54,20 @@ class BullResearcher(Agent):
         # Context에서 필요한 데이터 읽기
         history = context.get_cache("history", "")  # 전체 토론 히스토리
         last_arg = context.get_cache("current_response", "")  # 상대방의 마지막 주장
+
+        # Context에서 ticker와 trade_date 가져오기
+        ticker = context.get_cache("ticker", "")
+        trade_date = context.get_cache("trade_date", "")
+
         # AI에게 전달할 프롬프트 구성
+        from datetime import datetime as dt
+        date_key = dt.strptime(trade_date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+
         prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
-            market_report=context.get_report("market_report"),  # 시장 리포트
-            sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
-            news_report=context.get_report("news_report"),  # 뉴스 정보
-            fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
+            market_report=context.reports.get(ticker, {}).get(date_key, {}).get("market_report", ""),  # 시장 리포트
+            sentiment_report=context.reports.get(ticker, {}).get(date_key, {}).get("sentiment_report", ""),  # 감정 분석
+            news_report=context.reports.get(ticker, {}).get(date_key, {}).get("news_report", ""),  # 뉴스 정보
+            fundamentals_report=context.reports.get(ticker, {}).get(date_key, {}).get("fundamentals_report", ""),  # 펀더멘털 분석
             history=history,  # 토론 히스토리
             last_arg=last_arg,  # 상대방의 마지막 주장
         )
@@ -113,12 +121,19 @@ class BearResearcher(Agent):
         history = context.get_cache("history", "")  # 전체 토론 히스토리
         last_arg = context.get_cache("current_response", "")  # 상대방의 마지막 주장
 
+        # Context에서 ticker와 trade_date 가져오기
+        ticker = context.get_cache("ticker", "")
+        trade_date = context.get_cache("trade_date", "")
+
         # AI에게 전달할 프롬프트 구성
+        from datetime import datetime as dt
+        date_key = dt.strptime(trade_date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+
         prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
-            market_report=context.get_report("market_report"),  # 시장 리포트
-            sentiment_report=context.get_report("sentiment_report"),  # 감정 분석
-            news_report=context.get_report("news_report"),  # 뉴스 정보
-            fundamentals_report=context.get_report("fundamentals_report"),  # 펀더멘털 분석
+            market_report=context.reports.get(ticker, {}).get(date_key, {}).get("market_report", ""),  # 시장 리포트
+            sentiment_report=context.reports.get(ticker, {}).get(date_key, {}).get("sentiment_report", ""),  # 감정 분석
+            news_report=context.reports.get(ticker, {}).get(date_key, {}).get("news_report", ""),  # 뉴스 정보
+            fundamentals_report=context.reports.get(ticker, {}).get(date_key, {}).get("fundamentals_report", ""),  # 펀더멘털 분석
             history=history,  # 토론 히스토리
             last_arg=last_arg,  # 상대방의 마지막 주장
         )
