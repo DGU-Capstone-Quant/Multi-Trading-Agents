@@ -1,9 +1,10 @@
 # graphs/debate/agents.py
 
-from modules.agent import Agent  # 베이스 에이전트 클래스
+from modules.agent import Agent
 from modules.llm.client import Client
 from pydantic import BaseModel
 from modules.context import Context
+
 
 class BullReply(BaseModel):
     """Bull 에이전트의 응답 스키마 - 매수 주장"""
@@ -22,57 +23,50 @@ class ManagerDecision(BaseModel):
     plan: str
 
 
-COMMON_CONTEXT_TMPL = """[MARKET REPORT]
-{market_report}
+class BullResearcher(Agent):
+    """주식 매수를 옹호하는 Bull 에이전트 (낙관적 관점)"""
 
-[SENTIMENT]
-{sentiment_report}
+    def __init__(self, name: str = "Bull Analyst"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
 
-[NEWS]
-{news_report}
+    def run(self, context: Context) -> Context:
+        # Context에서 필요한 데이터 읽기
+        history = context.get_cache("history", "")
+        last_arg = context.get_cache("current_response", "")
+        ticker = context.get_cache("ticker", "")
+        date = context.get_cache("date", "")
 
-[FUNDAMENTALS]
-{fundamentals_report}
+        # config에서 analysis_tasks 가져오기
+        analysis_tasks = context.get_config("analysis_tasks", [])
 
-[DEBATE HISTORY]
+        # 날짜 키 생성
+        from datetime import datetime as dt
+        date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+
+        # analysis_tasks 기반으로 리포트 수집
+        reports_text = ""
+        for task in analysis_tasks:
+            report = context.reports.get(ticker, {}).get(date_key, {}).get(task, "")
+            if report:
+                # analyst의 구조화된 리포트인 경우
+                if isinstance(report, dict):
+                    report_str = context.get_report(ticker, date, task)
+                    reports_text += f"[{task.upper()} ANALYSIS]\n{report_str}\n\n"
+                # 단순 문자열 리포트인 경우
+                else:
+                    reports_text += f"[{task.upper()} ANALYSIS]\n{report}\n\n"
+
+        # 프롬프트 구성
+        prompt = f"""{reports_text}[DEBATE HISTORY]
 {history}
 
 [LAST OPPONENT ARG]
 {last_arg}
 """
 
-# BullResearcher
-class BullResearcher(Agent):
-    """주식 매수를 옹호하는 Bull 에이전트 (낙관적 관점)"""
-
-    def __init__(self, name: str = "Bull Analyst"):  # 에이전트 이름 초기화
-        super().__init__()  # 부모 Agent 클래스 초기화
-        self.name = name  # 에이전트 이름 저장
-        self.llm_client = Client()  # 클라이언트 생성
-
-    def run(self, context: Context) -> Context:  # 에이전트 실행 메서드
-        # Context에서 필요한 데이터 읽기
-        history = context.get_cache("history", "")  # 전체 토론 히스토리
-        last_arg = context.get_cache("current_response", "")  # 상대방의 마지막 주장
-
-        # Context에서 ticker와 trade_date 가져오기
-        ticker = context.get_cache("ticker", "")
-        trade_date = context.get_cache("trade_date", "")
-
-        # AI에게 전달할 프롬프트 구성
-        from datetime import datetime as dt
-        date_key = dt.strptime(trade_date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
-
-        prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
-            market_report=context.reports.get(ticker, {}).get(date_key, {}).get("market_report", ""),  # 시장 리포트
-            sentiment_report=context.reports.get(ticker, {}).get(date_key, {}).get("sentiment_report", ""),  # 감정 분석
-            news_report=context.reports.get(ticker, {}).get(date_key, {}).get("news_report", ""),  # 뉴스 정보
-            fundamentals_report=context.reports.get(ticker, {}).get(date_key, {}).get("fundamentals_report", ""),  # 펀더멘털 분석
-            history=history,  # 토론 히스토리
-            last_arg=last_arg,  # 상대방의 마지막 주장
-        )
-
-        # 메시지 리스트 구성
+        # AI 호출
         contents = [
             f"You are {self.name}, a Bull Analyst advocating for investing in the stock.",
             "Debate concisely with strong evidence.",
@@ -80,114 +74,123 @@ class BullResearcher(Agent):
             "Return JSON with field: chat (your argument).",
         ]
 
-        # AI 호출
-        resp = self.llm_client.generate_content(  # 콘텐츠 생성 요청
-            model=self.quick_model,  # gemini-2.5-flash
-            contents=contents,  # 위에서 만든 메시지 리스트
-            thinking_budget=self.quick_thinking_budget,  # 사고 시간
-            schema=BullReply,  # 구조화된 출력 스키마
+        resp = self.llm_client.generate_content(
+            model=self.quick_model,
+            contents=contents,
+            thinking_budget=self.quick_thinking_budget,
+            schema=BullReply,
         )
 
         # 응답 파싱 및 저장
-        chat = resp.content.get("chat", "")  # 주장 텍스트 추출
-        line = f"{self.name}: {chat}"  # 포매팅
+        chat = resp.content.get("chat", "")
+        line = f"{self.name}: {chat}"
 
-        # 전체 토론 히스토리 업데이트
-        new_history = history + ("\n" if history else "") + line  # 기존 히스토리에 새 발언 추가
+        # 히스토리 업데이트
+        new_history = history + ("\n" if history else "") + line
+        bull_hist = context.get_cache("bull_history", "")
+        new_bull_history = bull_hist + ("\n" if bull_hist else "") + line
 
-        # Bull 히스토리 업데이트
-        bull_hist = context.get_cache("bull_history", "")  # 기존 Bull 히스토리
-        new_bull_history = bull_hist + ("\n" if bull_hist else "") + line  # Bull 히스토리에 추가
-
-        # 5단계: Context에 결과 저장
-        context.set_cache(  # 여러 값을 한번에 저장
-            history=new_history,  # 전체 토론 히스토리 업데이트
-            bull_history=new_bull_history,  # Bull 전용 히스토리 업데이트
-            current_response=line,  # 가장 최근 발언 저장
-            count=context.get_cache("count", 0) + 1,  # 토론 카운트 증가
+        # Context에 결과 저장
+        context.set_cache(
+            history=new_history,
+            bull_history=new_bull_history,
+            current_response=line,
+            count=context.get_cache("count", 0) + 1,
         )
 
-        return context  # 업데이트된 Context 반환
+        return context
 
-# BearResearcher
 class BearResearcher(Agent):
-    def __init__(self, name: str = "Bear Analyst"):  # 에이전트 이름 초기화
-        super().__init__()  # 부모 Agent 클래스 초기화
-        self.name = name  # 에이전트 이름 저장
-        self.llm_client = Client()  # 클라이언트 생성
+    """주식 매도를 옹호하는 Bear 에이전트 (비관적 관점)"""
 
-    def run(self, context: Context) -> Context:  # 에이전트 실행 메서드
+    def __init__(self, name: str = "Bear Analyst"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
+
+    def run(self, context: Context) -> Context:
         # Context에서 필요한 데이터 읽기
-        history = context.get_cache("history", "")  # 전체 토론 히스토리
-        last_arg = context.get_cache("current_response", "")  # 상대방의 마지막 주장
-
-        # Context에서 ticker와 trade_date 가져오기
+        history = context.get_cache("history", "")
+        last_arg = context.get_cache("current_response", "")
         ticker = context.get_cache("ticker", "")
-        trade_date = context.get_cache("trade_date", "")
+        date = context.get_cache("date", "")
 
-        # AI에게 전달할 프롬프트 구성
+        # config에서 analysis_tasks 가져오기
+        analysis_tasks = context.get_config("analysis_tasks", [])
+
+        # 날짜 키 생성
         from datetime import datetime as dt
-        date_key = dt.strptime(trade_date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+        date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
 
-        prompt = COMMON_CONTEXT_TMPL.format(  # 공통 템플릿에 데이터 삽입
-            market_report=context.reports.get(ticker, {}).get(date_key, {}).get("market_report", ""),  # 시장 리포트
-            sentiment_report=context.reports.get(ticker, {}).get(date_key, {}).get("sentiment_report", ""),  # 감정 분석
-            news_report=context.reports.get(ticker, {}).get(date_key, {}).get("news_report", ""),  # 뉴스 정보
-            fundamentals_report=context.reports.get(ticker, {}).get(date_key, {}).get("fundamentals_report", ""),  # 펀더멘털 분석
-            history=history,  # 토론 히스토리
-            last_arg=last_arg,  # 상대방의 마지막 주장
-        )
+        # analysis_tasks 기반으로 리포트 수집
+        reports_text = ""
+        for task in analysis_tasks:
+            report = context.reports.get(ticker, {}).get(date_key, {}).get(task, "")
+            if report:
+                # analyst의 구조화된 리포트인 경우
+                if isinstance(report, dict):
+                    report_str = context.get_report(ticker, date, task)
+                    reports_text += f"[{task.upper()} ANALYSIS]\n{report_str}\n\n"
+                # 단순 문자열 리포트인 경우
+                else:
+                    reports_text += f"[{task.upper()} ANALYSIS]\n{report}\n\n"
 
-        # AI에게 전달할 메시지 리스트 구성
+        # 프롬프트 구성
+        prompt = f"""{reports_text}[DEBATE HISTORY]
+{history}
+
+[LAST OPPONENT ARG]
+{last_arg}
+"""
+
+        # AI 호출
         contents = [
             f"You are {self.name}, a Bear Analyst emphasizing risks and downsides.",
             "Debate concisely with strong evidence.",
-            prompt, 
+            prompt,
             "Return JSON with field: chat (your argument).",
         ]
 
-        # AI 호출
-        resp = self.llm_client.generate_content(  # 콘텐츠 생성 요청
-            model=self.quick_model,  # gemini-2.5-flash
-            contents=contents,  # 메시지 리스트
-            thinking_budget=self.quick_thinking_budget,  # 사고 시간
-            schema=BearReply,  # 구조화된 출력 스키마
+        resp = self.llm_client.generate_content(
+            model=self.quick_model,
+            contents=contents,
+            thinking_budget=self.quick_thinking_budget,
+            schema=BearReply,
         )
 
-        # 4단계: AI 응답 파싱 및 저장
-        chat = resp.content.get("chat", "")  # 텍스트 추출
-        line = f"{self.name}: {chat}"  # 포매팅
+        # 응답 파싱 및 저장
+        chat = resp.content.get("chat", "")
+        line = f"{self.name}: {chat}"
 
-        # 전체 토론 히스토리 업데이트
-        new_history = history + ("\n" if history else "") + line  # 히스토리에 새 발언 추가
+        # 히스토리 업데이트
+        new_history = history + ("\n" if history else "") + line
+        bear_hist = context.get_cache("bear_history", "")
+        new_bear_history = bear_hist + ("\n" if bear_hist else "") + line
 
-        # Bear 히스토리 업데이트
-        bear_hist = context.get_cache("bear_history", "")  # 기존 Bear 히스토리
-        new_bear_history = bear_hist + ("\n" if bear_hist else "") + line  # Bear 히스토리에 추가
-
-        # 5단계: Context에 결과 저장
-        context.set_cache(  # 여러 값을 한번에 저장
-            history=new_history,  # 전체 토론 히스토리 업데이트
-            bear_history=new_bear_history,  # Bear 전용 히스토리 업데이트
-            current_response=line,  # 가장 최근 발언 저장 (다음 Bull이 읽을 내용)
-            count=context.get_cache("count", 0) + 1,  # 토론 카운트 증가 (종료 조건 체크용)
+        # Context에 결과 저장
+        context.set_cache(
+            history=new_history,
+            bear_history=new_bear_history,
+            current_response=line,
+            count=context.get_cache("count", 0) + 1,
         )
 
-        return context  # 업데이트된 Context 반환
+        return context
 
 
-# ResearchManager
 class ResearchManager(Agent):
-    def __init__(self, name: str = "Research Manager"):  # 매니저 이름 초기화
-        super().__init__()  # 클래스 초기화
-        self.name = name  # 매니저 이름 저장
-        self.llm_client = Client()  # 클라이언트 생성
+    """토론을 종합하여 최종 투자 결정을 내리는 Manager 에이전트"""
 
-    def run(self, context: Context) -> Context:  # 매니저 실행 메서드
+    def __init__(self, name: str = "Research Manager"):
+        super().__init__()
+        self.name = name
+        self.llm_client = Client()
+
+    def run(self, context: Context) -> Context:
         # Context에서 전체 토론 히스토리 읽기
-        history = context.get_cache("history", "")  # Bull과 Bear의 전체 토론 내용
+        history = context.get_cache("history", "")
 
-        # AI에게 전달할 프롬프트 구성
+        # 프롬프트 구성
         prompt = f"""As the portfolio manager ({self.name}), read the debate below and output a clear decision.
 
 Debate:
@@ -197,20 +200,20 @@ Return JSON with:
 - decision: "BUY"|"SELL"|"HOLD"
 - rationale: concise reasoning
 - plan: concrete next steps
-"""  # 매니저의 역할과 출력 형식을 명확히 지시
+"""
 
         # AI 호출
         resp = self.llm_client.generate_content(
             model=self.quick_model,
-            contents=[prompt],  # 프롬프트 전달
-            thinking_budget=self.quick_thinking_budget,  # 사고 시간
-            schema=ManagerDecision,  # 구조화된 출력 스키마
+            contents=[prompt],
+            thinking_budget=self.quick_thinking_budget,
+            schema=ManagerDecision,
         )
 
-        # AI 응답을 Context에 저장
-        context.set_cache(  # 매니저의 결정을 저장
-            manager_decision=resp.content,  # 전체 결정 내용
-            current_response=f"{self.name}: {resp.content}",  # 매니저의 응답을 문자열로 저장
+        # Context에 결과 저장
+        context.set_cache(
+            manager_decision=resp.content,
+            current_response=f"{self.name}: {resp.content}",
         )
 
         return context

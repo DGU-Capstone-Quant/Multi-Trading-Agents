@@ -1,16 +1,24 @@
-# test_debate.py
-from graphs.debate.factory import create_context, create_debate_graph
+from graphs.debate.factory import run_debate
+from modules.context import Context
 
-context = create_context(ticker="GOOGL", trade_date="20250328T0930", rounds=2)
-debate_graph = create_debate_graph(context)
-context = debate_graph.run(context)
+context = Context()
+context.set_config(
+    analysis_tasks=["financial"],
+    tickers=["GOOGL", "AAPL"],
+    rounds=2,
+)
 
-history = context.get_cache("history", "")
-print(f"\n{history}\n")
+context.set_cache(
+    date="20250328T0930",
+)
 
-decision = context.get_cache("manager_decision", {})
-print("-" * 80)
-print(f"Decision: {decision.get('decision', 'N/A')}")
-print(f"Rationale: {decision.get('rationale', 'N/A')}")
-print(f"Plan: {decision.get('plan', 'N/A')}")
-print("=" * 80)
+# 테스트용 리포트 설정 (실제로는 analyst가 생성)
+for ticker in context.get_config("tickers"):
+    context.set_report(
+        ticker,
+        context.get_cache("date"),
+        "financial",
+        f"{ticker} financial analysis: Strong revenue growth."
+    )
+
+debate_context = run_debate(context)
