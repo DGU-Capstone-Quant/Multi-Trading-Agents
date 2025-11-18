@@ -1,4 +1,4 @@
-"""트레이딩 대시보드 메인 애플리케이션"""
+"""트레이딩 대시보드 애플리케이션"""
 
 from typing import Dict, List
 from textual.app import App
@@ -8,7 +8,7 @@ from cli.screens import MainScreen
 
 
 class TradingDashboardApp(App):
-    """멀티 트레이딩 에이전트 대시보드 애플리케이션"""
+    """멀티 트레이딩 에이전트 대시보드"""
 
     TITLE = "멀티 트레이딩 에이전트 대시보드"
 
@@ -22,5 +22,5 @@ class TradingDashboardApp(App):
         self.date_ticker_map = date_ticker_map
 
     def on_mount(self) -> None:
-        """앱 시작 시 메인 화면 마운트"""
+        """메인 화면 마운트"""
         self.push_screen(MainScreen(self.context, self.date_ticker_map))
