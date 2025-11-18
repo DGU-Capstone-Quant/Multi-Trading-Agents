@@ -20,7 +20,7 @@ class Agent:
         )
 
         print(f"Agent's answer: {response.content.get('text')}")
-        context.set_cache("answer", response.content.get('text'))
+        context.set_cache(answer=response.content.get('text'))
         return context
 
 # Test: python -m modules.agent.agent

@@ -24,42 +24,12 @@ def _resolve_report_path(ticker: str, trade_date: str) -> Path:
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
-
-# 조건 함수들
-def under_round_limit(context: Context, max_rounds: int) -> bool:
-    """토론 라운드가 아직 제한에 도달하지 않았는지 확인"""
-    return context.get_cache("count", 0) < max_rounds * 2
-def reached_round_limit(context: Context, max_rounds: int) -> bool:
-    """토론 라운드가 제한에 도달했는지 확인"""
-    return not under_round_limit(context, max_rounds)
-
-def create_debate_graph(ticker: str, trade_date: str, rounds: int = 1):
-    # 1. 노드 생성
-    bull = BullNode("Bull")  # Bull 노드 생성
-    bear = BearNode("Bear")  # Bear 노드 생성
-    mgr = ManagerNode("Manager")  # Manager 노드 생성
-
-    # 2. 그래프 생성 및 노드 추가
-    g = Graph(bull)  # Graph 생성 (시작 노드: Bull)
-    g.add_node(bear)  # Bear 노드 추가
-    g.add_node(mgr)  # Manager 노드 추가
-
-    # 3. 엣지 추가
-    g.add_edge("Bull", "Bear")
-
-    # Bear에서 두 개의 엣지
-    g.add_edge(
-        "Bear",
-        "Manager",
-        cond_func=lambda ctx: reached_round_limit(ctx, rounds)
-    )
-    g.add_edge("Bear", "Bull")  # 위 조건이 False면 Bull로
-
-    # 4. 마켓 리포트 파일 읽기
+def create_context(ticker: str, trade_date: str, rounds: int = 1) -> Context:
+    """토론용 Context 생성 및 초기화"""
+    # 마켓 리포트 파일 읽기
     rp = _resolve_report_path(ticker, trade_date)  # 마켓 리포트 파일 경로 찾기
     reports_dir = rp.parent  # 리포트 디렉토리 경로
 
-    # 5. Context 초기화
     ctx = Context()  # 빈 Context 생성
 
     # 리포트 데이터 저장 (Context.reports에 저장)
@@ -79,8 +49,36 @@ def create_debate_graph(ticker: str, trade_date: str, rounds: int = 1):
         bear_history="",  # Bear 전용 히스토리
         current_response="",  # 가장 최근 발언
         count=0,  # 토론 카운트
+        rounds=rounds,  # 토론 라운드 수
         max_rounds=rounds,  # 최대 라운드 수
     )
 
-    # 6. 그래프와 Context 반환
-    return g, ctx  # (Graph, Context) 튜플 반환
+    return ctx
+
+def create_debate_graph(ctx: Context) -> Graph:
+    """토론 그래프 생성"""
+    # Context에서 rounds 값 가져오기
+    rounds = ctx.get_cache("rounds", 1)
+
+    # 1. 노드 생성
+    bull = BullNode("Bull")  # Bull 노드 생성
+    bear = BearNode("Bear")  # Bear 노드 생성
+    mgr = ManagerNode("Manager")  # Manager 노드 생성
+
+    # 2. 그래프 생성 및 노드 추가
+    g = Graph(bull)  # Graph 생성 (시작 노드: Bull)
+    g.add_node(bear)  # Bear 노드 추가
+    g.add_node(mgr)  # Manager 노드 추가
+
+    # 3. 엣지 추가
+    g.add_edge("Bull", "Bear")
+
+    # Bear에서 두 개의 엣지
+    def check_round_limit(ctx: Context) -> bool:
+        """토론 라운드가 제한에 도달했는지 확인"""
+        return ctx.get_cache("count", 0) >= rounds * 2
+
+    g.add_edge("Bear", "Manager", cond_func=check_round_limit)
+    g.add_edge("Bear", "Bull")  # 위 조건이 False면 Bull로
+
+    return g
