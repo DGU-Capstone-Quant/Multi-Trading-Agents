@@ -32,7 +32,7 @@ class CandidateNode(BaseNode):
             return context
 
         random.shuffle(tickers)
-        tickers = tickers[:available_slots]
+        tickers = tickers[:available_slots * 2]
 
         context.set_cache(candidates=tickers)
         self.state = 'passed'
@@ -96,7 +96,7 @@ class RankNode(BaseNode):
         sorted_candidates = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         available_slots = context.get_config('max_portfolio_size', 5) - len(context.get_cache('portfolio', {}))
         recommendation = {ticker for ticker, _ in sorted_candidates[:available_slots]}
-        recommendation = recommendation.update(context.get_cache('portfolio', {}).keys())
-        context.set_cache(recommendation=recommendation)
+        recommendation.update(context.get_cache('portfolio', {}).keys())
+        context.set_cache(recommendation=list(recommendation))
         self.state = 'passed'
         return context
