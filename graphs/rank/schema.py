@@ -1,4 +1,4 @@
-﻿# graphs/analyst/schema.py
+﻿# graphs/rank/schema.py
 from pydantic import BaseModel, Field
 from typing import Literal
 

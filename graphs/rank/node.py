@@ -1,4 +1,4 @@
-﻿# graphs/analyst/node.py
+﻿# graphs/rank/node.py
 from modules.graph import BaseNode
 from modules.context import Context
 from .agent import RankAgent
@@ -27,12 +27,12 @@ class CandidateNode(BaseNode):
 
         available_slots = max_portfolio_size - portfolio_size
         if len(tickers) <= available_slots:
-            context.set_cache(candidates=tickers)
+            context.set_cache(recommendation=tickers)
             self.state = 'passed'
             return context
 
         random.shuffle(tickers)
-        tickers = tickers[:max_portfolio_size]
+        tickers = tickers[:available_slots]
 
         context.set_cache(candidates=tickers)
         self.state = 'passed'
@@ -44,11 +44,11 @@ class CheckNode(BaseNode):
         super().__init__(name)
     
     def run(self, context: Context) -> Context:
-        if context.get_cache('recommendation', []):
+        candidates = context.get_cache('candidates')
+        if not candidates:
             self.state = 'passed'
             return context
         
-        candidates = context.get_cache('candidates')
         date = context.get_cache('date', '20251101T0000')
         no_report_candidates = []
         for ticker in candidates:
@@ -95,7 +95,8 @@ class RankNode(BaseNode):
 
         sorted_candidates = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         available_slots = context.get_config('max_portfolio_size', 5) - len(context.get_cache('portfolio', {}))
-        recommendation = [ticker for ticker, _ in sorted_candidates[:available_slots]]
+        recommendation = {ticker for ticker, _ in sorted_candidates[:available_slots]}
+        recommendation = recommendation.update(context.get_cache('portfolio', {}).keys())
         context.set_cache(recommendation=recommendation)
         self.state = 'passed'
         return context

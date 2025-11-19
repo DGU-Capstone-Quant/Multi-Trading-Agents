@@ -1,2 +1,2 @@
-﻿# graphs/rank/__init__.py
+﻿# graphs/main/__init__.py
 from .graph import create_rank_graph
