@@ -26,7 +26,6 @@ print(f"Recommendation: {recommendation}\n")
 
 # DEBATE 그래프 실행
 print("DEBATE 실행 중\n")
-context.set_config(tickers=recommendation)
 debate_graph = create_debate_graph()
 context = debate_graph.run(context)
 
