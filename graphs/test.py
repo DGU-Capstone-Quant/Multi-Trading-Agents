@@ -1,7 +1,7 @@
 ﻿# graphs/test.py
 from modules.context import Context
-from modules.graph import Graph
-from modules.graph import BaseNode
+from modules.graph.graph import Graph
+from modules.graph.node import BaseNode
 from modules.agent import Agent
 from pydantic import BaseModel
 

@@ -27,5 +27,5 @@ class BaseNode:
                 return edge.to_node
         return None
 
-    def link_edge(self, edge: Edge):
+    def add_edge(self, edge: Edge):
         self.edges.append(edge)

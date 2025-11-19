@@ -32,14 +32,14 @@ class Client:
                 self,
                 model: str,
                 contents: list,
-                system_instruction: str = None,
+                system_instructions: str = None,
                 thinking_budget: int = -1,
                 schema: BaseModel = None,
         ) -> Response:
 
         config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
-            system_instruction=system_instruction,
+            system_instruction=system_instructions,
             response_mime_type=None if schema is None else "application/json",
             response_schema=schema
         )

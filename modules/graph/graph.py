@@ -2,14 +2,12 @@
 from .node import *
 from modules.context import Context
 
-class Graph(BaseNode):
-    def __init__(self, name: str, start_node: BaseNode):
-        super().__init__(name)
+class Graph:
+    def __init__(self, start_node: BaseNode):
         self.start_node = start_node
         self.graph: dict[str, BaseNode] = {start_node.name: start_node}
 
     def run(self, context: Context) -> dict:
-        self.state = 'running'
         current_node = self.start_node
 
         while True:
@@ -23,8 +21,7 @@ class Graph(BaseNode):
                 continue
 
             break
-        
-        self.state = 'passed'
+
         return context
 
     def add_node(self, node: BaseNode) -> str:
@@ -41,5 +38,5 @@ class Graph(BaseNode):
             raise ValueError(f"Node '{to_node_name}'가 그래프에 없습니다.")
         
         edge = Edge(to_node, cond_func)
-        from_node.link_edge(edge)
+        from_node.add_edge(edge)
             

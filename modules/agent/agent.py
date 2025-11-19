@@ -12,6 +12,8 @@ class Agent:
         self.quick_thinking_budget = 0
         self.deep_thinking_budget = -1
 
+        self.tools = []
+
     def run(self, context: Context) -> Context:
         response = self.llm_client.generate_content(
             model=self.quick_model,
@@ -20,7 +22,7 @@ class Agent:
         )
 
         print(f"Agent's answer: {response.content.get('text')}")
-        context.set_cache(answer=response.content.get('text'))
+        context.set_cache("answer", response.content.get('text'))
         return context
 
 # Test: python -m modules.agent.agent
