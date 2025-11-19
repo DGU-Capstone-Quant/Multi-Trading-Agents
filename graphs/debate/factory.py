@@ -1,62 +1,50 @@
 # graphs/debate/factory.py
 
 from modules.graph.graph import Graph
-from graphs.debate.nodes import BullNode, BearNode, ManagerNode
+from graphs.debate.nodes import BullNode, BearNode, ManagerNode, DebateSelectionNode
 from modules.context import Context
 
 
-def run_debate(context: Context) -> Context:
+def check_tickers_left(context: Context) -> bool:
+    """남은 ticker가 있는지 확인"""
+    return len(context.get_cache('tickers', [])) > 0
+
+
+def check_round_limit(context: Context) -> bool:
+    """토론 라운드가 제한에 도달했는지 확인"""
+    rounds = context.get_config("rounds", 1)
+    return context.get_cache("count", 0) >= rounds * 2
+
+
+def create_debate_graph() -> Graph:
     """
-    여러 ticker에 대해 순차적으로 토론을 실행하고 결과를 context에 저장
+    토론 그래프 생성 - analyst 패턴을 따름
+    SelectionNode -> Bull -> Bear -> (라운드 체크) -> Manager -> (ticker 체크) -> SelectionNode
     """
-    # config에서 설정 값 가져오기
-    tickers = context.get_config("tickers", [])
+    # 시작 노드: DebateSelectionNode
+    graph = Graph("debate_graph", start_node=DebateSelectionNode("selection_node"))
 
-    # 각 ticker에 대해 순차적으로 토론 진행
-    for ticker in tickers:
-        # 토론에 필요한 캐시 데이터 초기화
-        context.set_cache(
-            ticker=ticker,
-            history="",  # 전체 토론 히스토리
-            bull_history="",  # Bull 전용 히스토리
-            bear_history="",  # Bear 전용 히스토리
-            current_response="",  # 가장 최근 발언
-            count=0,  # 토론 카운트
-        )
+    selection_node = graph.start_node.name
 
-        # 토론 그래프 생성 및 실행
-        graph = _create_graph()
-        context = graph.run(context)
+    # 토론 노드들 추가
+    bull_node = graph.add_node(BullNode("bull_node"))
+    bear_node = graph.add_node(BearNode("bear_node"))
+    manager_node = graph.add_node(ManagerNode("manager_node"))
 
-    return context
+    # 엣지 연결
+    # selection -> bull (ticker 선택 후 토론 시작)
+    graph.add_edge(selection_node, bull_node)
 
+    # bull -> bear (Bull 발언 후 Bear 차례)
+    graph.add_edge(bull_node, bear_node)
 
-def _create_graph() -> Graph:
-    """
-    토론 그래프 생성
-    """
-    # 노드 생성
-    bull = BullNode("Bull")
-    bear = BearNode("Bear")
-    mgr = ManagerNode("Manager")
+    # bear -> manager (라운드 제한 도달 시)
+    graph.add_edge(bear_node, manager_node, cond_func=check_round_limit)
 
-    # 그래프 생성 및 노드 추가
-    g = Graph("DebateGraph", bull)
-    g.add_node(bear)
-    g.add_node(mgr)
+    # bear -> bull (라운드 제한 미도달 시 토론 계속)
+    graph.add_edge(bear_node, bull_node)
 
-    # 엣지 추가
-    g.add_edge("Bull", "Bear")
+    # manager -> selection (다음 ticker 처리를 위해, ticker가 남아있으면)
+    graph.add_edge(manager_node, selection_node, cond_func=check_tickers_left)
 
-    # 라운드 제한 확인 함수
-    def check_round_limit(ctx: Context) -> bool:
-        """토론 라운드가 제한에 도달했는지 확인"""
-        rounds = ctx.get_config("rounds", 1)
-        return ctx.get_cache("count", 0) >= rounds * 2
-
-    # Bear에서 Manager로 가는 조건부 엣지
-    g.add_edge("Bear", "Manager", cond_func=check_round_limit)
-    # Bear에서 Bull로 돌아가는 엣지
-    g.add_edge("Bear", "Bull")
-
-    return g
+    return graph

@@ -9,7 +9,6 @@ from graphs.debate.agents import BullResearcher, BearResearcher, ResearchManager
 from modules.context import Context
 
 LOG_DIR = Path("logs/research_dialogs")
-RESULTS_DIR = Path("results")
 
 
 def _write_json(path: Path, payload: dict):
@@ -23,6 +22,38 @@ def _round_dir(context: Context) -> Path:
     tkr = context.get_cache("ticker", "UNKNOWN")
     date = context.get_cache("date", "UNKNOWN_DATE")
     return LOG_DIR / f"{tkr}_{date}"
+
+
+class DebateSelectionNode(BaseNode):
+    """
+    여러 ticker에 대해 순차적으로 토론을 진행하기 위한 Selection Node
+    analyst의 SelectionNode 패턴을 따름
+    """
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    def run(self, context: Context) -> Context:
+        tickers = context.get_cache('tickers', [])
+        if not tickers:
+            tickers = context.get_cache("recommendation", [])
+            context.set_cache(tickers=tickers)
+        
+        if not tickers:
+            raise ValueError("No tickers available for analysis.")
+
+        # 선택된 ticker로 토론 초기화
+        context.set_cache(
+            ticker=tickers[0],
+            tickers=list(tickers[1:]),
+            history="",  # 전체 토론 히스토리
+            bull_history="",  # Bull 전용 히스토리
+            bear_history="",  # Bear 전용 히스토리
+            current_response="",  # 가장 최근 발언
+            count=0,  # 토론 카운트
+        )
+
+        self.state = 'passed'
+        return context
 
 
 class BullNode(BaseNode):

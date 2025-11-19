@@ -1,5 +1,6 @@
 # graphs/debate/agents.py
 
+from datetime import datetime as dt
 from modules.agent import Agent
 from modules.llm.client import Client
 from pydantic import BaseModel
@@ -38,40 +39,48 @@ class BullResearcher(Agent):
         ticker = context.get_cache("ticker", "")
         date = context.get_cache("date", "")
 
-        # config에서 analysis_tasks 가져오기
-        analysis_tasks = context.get_config("analysis_tasks", [])
+        # config에서 analysis_tasks 가져오기 (기본값: financial, news, fundamental)
+        analysis_tasks = context.get_config("analysis_tasks", ["financial", "news", "fundamental"])
 
-        # 날짜 키 생성
-        from datetime import datetime as dt
-        date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
-
-        # analysis_tasks 기반으로 리포트 수집
+        # analyst가 생성한 보고서들을 context.reports에서 가져오기
         reports_text = ""
         for task in analysis_tasks:
-            report = context.reports.get(ticker, {}).get(date_key, {}).get(task, "")
+            report = context.reports.get(ticker, {}).get(
+                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H"), {}
+            ).get(task, None)
+
             if report:
-                # analyst의 구조화된 리포트인 경우
+                # analyst의 구조화된 리포트 형식 사용
                 if isinstance(report, dict):
                     report_str = context.get_report(ticker, date, task)
-                    reports_text += f"[{task.upper()} ANALYSIS]\n{report_str}\n\n"
-                # 단순 문자열 리포트인 경우
+                    reports_text += f"=== {task.upper()} ANALYSIS ===\n{report_str}\n\n"
+                # 단순 문자열 리포트인 경우 (하위 호환성)
                 else:
-                    reports_text += f"[{task.upper()} ANALYSIS]\n{report}\n\n"
+                    reports_text += f"=== {task.upper()} ANALYSIS ===\n{report}\n\n"
+
+        # 보고서가 없는 경우 경고
+        if not reports_text:
+            reports_text = "[WARNING] No analyst reports available. Please run analyst graph first.\n\n"
 
         # 프롬프트 구성
-        prompt = f"""{reports_text}[DEBATE HISTORY]
+        prompt = f"""You are a Bull Analyst. Use the following analyst reports to support your investment thesis:
+
+{reports_text}
+=== DEBATE HISTORY ===
 {history}
 
-[LAST OPPONENT ARG]
+=== LAST OPPONENT ARGUMENT ===
 {last_arg}
+
+Based on the analyst reports above, provide a strong bullish argument with specific evidence from the reports.
 """
 
         # AI 호출
         contents = [
-            f"You are {self.name}, a Bull Analyst advocating for investing in the stock.",
-            "Debate concisely with strong evidence.",
+            f"You are {self.name}, advocating for buying the stock.",
+            "Use specific data and insights from the analyst reports to make your case.",
             prompt,
-            "Return JSON with field: chat (your argument).",
+            "Return JSON with field: chat (your argument with evidence).",
         ]
 
         resp = self.llm_client.generate_content(
@@ -115,40 +124,48 @@ class BearResearcher(Agent):
         ticker = context.get_cache("ticker", "")
         date = context.get_cache("date", "")
 
-        # config에서 analysis_tasks 가져오기
-        analysis_tasks = context.get_config("analysis_tasks", [])
+        # config에서 analysis_tasks 가져오기 (기본값: financial, news, fundamental)
+        analysis_tasks = context.get_config("analysis_tasks", ["financial", "news", "fundamental"])
 
-        # 날짜 키 생성
-        from datetime import datetime as dt
-        date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
-
-        # analysis_tasks 기반으로 리포트 수집
+        # analyst가 생성한 보고서들을 context.reports에서 가져오기
         reports_text = ""
         for task in analysis_tasks:
-            report = context.reports.get(ticker, {}).get(date_key, {}).get(task, "")
+            report = context.reports.get(ticker, {}).get(
+                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H"), {}
+            ).get(task, None)
+
             if report:
-                # analyst의 구조화된 리포트인 경우
+                # analyst의 구조화된 리포트 형식 사용
                 if isinstance(report, dict):
                     report_str = context.get_report(ticker, date, task)
-                    reports_text += f"[{task.upper()} ANALYSIS]\n{report_str}\n\n"
-                # 단순 문자열 리포트인 경우
+                    reports_text += f"=== {task.upper()} ANALYSIS ===\n{report_str}\n\n"
+                # 단순 문자열 리포트인 경우 (하위 호환성)
                 else:
-                    reports_text += f"[{task.upper()} ANALYSIS]\n{report}\n\n"
+                    reports_text += f"=== {task.upper()} ANALYSIS ===\n{report}\n\n"
+
+        # 보고서가 없는 경우 경고
+        if not reports_text:
+            reports_text = "[WARNING] No analyst reports available. Please run analyst graph first.\n\n"
 
         # 프롬프트 구성
-        prompt = f"""{reports_text}[DEBATE HISTORY]
+        prompt = f"""You are a Bear Analyst. Use the following analyst reports to identify risks and concerns:
+
+{reports_text}
+=== DEBATE HISTORY ===
 {history}
 
-[LAST OPPONENT ARG]
+=== LAST OPPONENT ARGUMENT ===
 {last_arg}
+
+Based on the analyst reports above, provide a strong bearish argument highlighting risks and concerns with specific evidence from the reports.
 """
 
         # AI 호출
         contents = [
-            f"You are {self.name}, a Bear Analyst emphasizing risks and downsides.",
-            "Debate concisely with strong evidence.",
+            f"You are {self.name}, advocating caution and highlighting risks.",
+            "Use specific data and insights from the analyst reports to identify concerns.",
             prompt,
-            "Return JSON with field: chat (your argument).",
+            "Return JSON with field: chat (your argument with evidence).",
         ]
 
         resp = self.llm_client.generate_content(
