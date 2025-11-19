@@ -1,11 +1,18 @@
 ﻿# main.py
-from graphs.debate.factory import create_debate_graph
+from graphs.rank import create_rank_graph
+from modules.context import Context
 
-if __name__ == "__main__":
-    graph, ctx = create_debate_graph(
-        ticker="GOOGL",
-        trade_date="2025-03-28",
-        rounds=2
-    )
+context = Context()
+context.set_config(
+    analysis_tasks=["financial",],
+    tickers=["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"],
+    max_portfolio_size=3,
+)
 
-    graph.run(ctx)
+context.set_cache(
+    date="20251101T0000",
+)
+
+rank_graph = create_rank_graph()
+
+rank_graph.run(context)
