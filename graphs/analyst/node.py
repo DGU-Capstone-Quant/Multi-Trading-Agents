@@ -11,7 +11,8 @@ class SelectionNode(BaseNode):
     def run(self, context: Context) -> Context:
         tickers = context.get_cache('tickers', [])
         if not tickers:
-            tickers = context.get_cache('portfolio', {}).keys() if not context.get_cache('rank_scenario', False) else context.get_cache('no_report_candidates', [])
+            key = 'recommendation' if not context.get_cache('rank_scenario', False) else 'no_report_candidates'
+            tickers = context.get_cache(key, [])
             context.set_cache(tickers=tickers)
         
         if not tickers:
