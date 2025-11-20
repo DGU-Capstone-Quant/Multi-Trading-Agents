@@ -12,8 +12,7 @@ from textual import on
 from modules.context import Context
 from cli.base import BaseScreen
 from cli.widgets import PortfolioWidget, ActivityWidget
-from graphs.rank import create_rank_graph
-from graphs.debate.factory import create_debate_graph
+from graphs.main import create_main_graph
 from cli.screens.utils import get_report_from_context, make_progress_key
 from cli.events import ContextUpdated
 
@@ -339,57 +338,15 @@ class MainScreen(BaseScreen):
     def _run_graph(self, tickers: list, trade_date: str) -> None:
         graph_date = self._format_graph_date(trade_date)
         self._normalize_portfolio()
-
-        try:
-            self.context.set_config(
-                analysis_tasks=["financial"],
-                tickers=tickers,
-                max_portfolio_size=max(1, len(tickers)),
-                rounds=2,
-            )
-            # 그래프에서 None 목록을 다루며 len 호출로 터지는 것을 방지하기 위해 기본 리스트 값 세팅
-            self.context.set_cache(date=graph_date, tickers=tickers, display_date=trade_date, candidates=[])
-            # 진행 중 상태 등록
-            self._init_trade_progress(tickers, trade_date)
-            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated()))
+        self.context.on_update = lambda: (
+            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated())) and\
             self.app.call_from_thread(self._refresh_widgets)
+        )
 
-            rank_graph = create_rank_graph()
-            self.context = rank_graph.run(self.context)
-            recommended = self.context.get_cache("recommendation", tickers) or tickers
-            self.context.set_cache(tickers=recommended)
-            # 랭킹 결과를 포트폴리오에 즉시 반영해 진행 중에도 보이게 함
-            for rec in recommended:
-                self._add_portfolio_ticker(rec, trade_date)
-            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated()))
-            self.app.call_from_thread(self._refresh_widgets)
-
-            debate_graph = create_debate_graph()
-            self.context = debate_graph.run(self.context)
-
-            for ticker in recommended:
-                plan_text = get_report_from_context(self.context, ticker, trade_date, "investment_plan") or ""
-                decision = self._extract_decision(plan_text, ticker)
-                recommendation = plan_text or f"{ticker}에 대한 투자 계획을 확인할 수 없습니다."
-                self._record_trade(ticker, trade_date, decision, recommendation)
-
-            self.app.call_from_thread(
-                self.notify,
-                f"[OK] 그래프 실행 완료 | 종목: {', '.join(recommended)}",
-                severity="success",
-            )
-        except Exception as e:
-            for ticker in tickers:
-                fallback_decision = f"{ticker} 분석 실패"
-                fallback_recommendation = f"그래프 실행 실패: {str(e)[:80]}"
-                self._record_trade(ticker, trade_date, fallback_decision, fallback_recommendation)
-            self.app.call_from_thread(
-                self.notify,
-                f"[ERR] 그래프 실행 실패: {str(e)[:80]}",
-                severity="error",
-            )
-
+        graph = create_main_graph()
+        graph.run(self.context)
         self.app.call_from_thread(self._refresh_widgets)
+
 
     def _record_trade(self, ticker: str, trade_date: str, decision: str, recommendation: str) -> None:
         decision_key = f"{ticker}_{trade_date}_trader_decision"

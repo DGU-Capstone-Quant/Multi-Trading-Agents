@@ -9,6 +9,12 @@ from cli import TradingDashboardApp
 def main():
     """트레이딩 대시보드 CLI 진입점"""
     context = Context()
+    context.set_config(
+        analysis_tasks=["financial",],
+        tickers=["AAPL",],
+        max_portfolio_size=1,
+        rounds=2,
+    )
 
     # 기본 날짜/종목 맵 생성 (최근 5 거래일)
     date_ticker_map = {}
