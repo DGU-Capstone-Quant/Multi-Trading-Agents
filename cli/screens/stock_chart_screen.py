@@ -120,7 +120,7 @@ class StockChartScreen(BaseScreen):
 
     def __init__(self, context: Context, ticker: str, *args, **kwargs):
         super().__init__(context, *args, **kwargs)
-        self.ticker = ticker
+        self.ticker = str(ticker)  # Text 객체일 수 있으므로 str로 변환
         self.df = None
 
     def compose(self) -> ComposeResult:
@@ -174,18 +174,13 @@ class StockChartScreen(BaseScreen):
         buy_points_x, buy_points_y, sell_points_x, sell_points_y = [], [], [], []
         hold_points_x, hold_points_y = [], []
 
-        # 모든 거래 이벤트 수집 (현재 진행 + 완료)
-        trade_events = set()
-        current_ticker = self.context.get_cache("ticker", "")
-        current_date = self.context.get_cache("trade_date", "") or self.context.get_cache("date", "")
-        if current_ticker == self.ticker and current_date:
-            trade_events.add(current_date)
+        # portfolio에서 decision 가져오기
+        portfolio = self.context.get_cache("portfolio", {}) or {}
+        ticker_data = portfolio.get(self.ticker, {})
+        decision = (ticker_data.get("decision", "") or "").upper()
+        trade_date = ticker_data.get("added_at", "")
 
-        for debate in self.context.get_cache("completed_debates", []):
-            if debate.get("ticker") == self.ticker and debate.get("trade_date"):
-                trade_events.add(debate["trade_date"])
-
-        for trade_date in trade_events:
+        if trade_date and decision:
             # 차트에 없는 날짜면 가장 가까운 날짜로 매핑
             if trade_date in dates:
                 idx = dates.index(trade_date)
@@ -194,18 +189,18 @@ class StockChartScreen(BaseScreen):
                     target = datetime.strptime(trade_date, "%Y-%m-%d")
                     idx = min(range(len(dates)), key=lambda i: abs(datetime.strptime(dates[i], "%Y-%m-%d") - target))
                 except Exception:
-                    continue
+                    idx = None
 
-            decision = self.context.get_cache(trader_decision_key(self.ticker, trade_date), "").upper()
-            if "BUY" in decision:
-                buy_points_x.append(x[idx])
-                buy_points_y.append(close_prices[idx])
-            elif "SELL" in decision:
-                sell_points_x.append(x[idx])
-                sell_points_y.append(close_prices[idx])
-            elif "HOLD" in decision:
-                hold_points_x.append(x[idx])
-                hold_points_y.append(close_prices[idx])
+            if idx is not None:
+                if "BUY" in decision:
+                    buy_points_x.append(x[idx])
+                    buy_points_y.append(close_prices[idx])
+                elif "SELL" in decision:
+                    sell_points_x.append(x[idx])
+                    sell_points_y.append(close_prices[idx])
+                elif "HOLD" in decision:
+                    hold_points_x.append(x[idx])
+                    hold_points_y.append(close_prices[idx])
 
         if buy_points_x:
             chart_plot.plt.scatter(buy_points_x, buy_points_y, marker="^", color="green")

@@ -20,7 +20,7 @@ def _write_json(path: Path, payload: dict):
 def _round_dir(context: Context) -> Path:
     """로그 디렉토리 경로를 생성하는 함수"""
     tkr = context.get_cache("ticker", "UNKNOWN")
-    date = context.get_cache("date", "UNKNOWN_DATE")
+    date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
     return LOG_DIR / f"{tkr}_{date}"
 
 
@@ -33,13 +33,23 @@ class DebateSelectionNode(BaseNode):
         super().__init__(name)
 
     def run(self, context: Context) -> Context:
-        tickers = context.get_cache('tickers', [])
+        # config에서 먼저 tickers를 가져오고, 없으면 cache의 recommendation 사용
+        tickers = context.get_config('tickers', [])
         if not tickers:
             tickers = context.get_cache("recommendation", [])
-            context.set_cache(tickers=tickers)
-        
+        if not tickers:
+            tickers = context.get_cache('tickers', [])
+
         if not tickers:
             raise ValueError("No tickers available for analysis.")
+
+        # tickers를 cache에 저장 (다른 노드에서 사용)
+        context.set_cache(tickers=list(tickers))
+
+        # config의 trade_date를 cache의 date로도 설정 (다른 노드에서 사용)
+        trade_date = context.get_config("trade_date", "")
+        if trade_date:
+            context.set_cache(date=trade_date)
 
         # 선택된 ticker로 토론 초기화
         context.set_cache(
@@ -53,6 +63,7 @@ class DebateSelectionNode(BaseNode):
         )
 
         self.state = 'passed'
+
         return context
 
 
@@ -84,6 +95,7 @@ class BullNode(BaseNode):
 
         return context
 
+
 class BearNode(BaseNode):
     """Bear 에이전트를 실행하는 노드"""
 
@@ -111,6 +123,7 @@ class BearNode(BaseNode):
             print("[BearNode][log]", e)
 
         return context
+
 
 class ManagerNode(BaseNode):
     """Manager 에이전트를 실행하는 노드"""
@@ -141,7 +154,12 @@ class ManagerNode(BaseNode):
         try:
             plan = context.get_cache("manager_decision") or {}
             ticker = context.get_cache("ticker", "UNKNOWN")
-            date = context.get_cache("date", "UNKNOWN_DATE")
+            raw_date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
+            # YYYY-MM-DD → YYYYMMDDTHHMM 변환
+            if raw_date and "-" in raw_date:
+                date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%Y%m%dT%H%M")
+            else:
+                date = raw_date
 
             # 마크다운 내용 구성
             md = [
@@ -158,6 +176,13 @@ class ManagerNode(BaseNode):
 
             # Context의 reports에 저장
             context.set_report(ticker, date, "investment_plan", "\n".join(md))
+
+            # 테스트: 모든 결정(BUY, HOLD, SELL)을 portfolio에 추가, 추후 Trader로 옮길 예정
+            portfolio = context.get_cache("portfolio", {}) or {}
+            trade_date = context.get_config("trade_date", date)
+            if ticker not in portfolio:
+                portfolio[ticker] = {"added_at": trade_date, "decision": plan.get("decision", "")}
+                context.set_cache(portfolio=portfolio)
 
         except Exception as e:
             print("[ManagerNode][save plan]", e)

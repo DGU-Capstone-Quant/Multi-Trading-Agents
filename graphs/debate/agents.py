@@ -7,6 +7,20 @@ from pydantic import BaseModel
 from modules.context import Context
 
 
+def _normalize_date(date: str) -> str:
+    """date 형식을 YYYYMMDDTHHMM으로 변환"""
+    if not date:
+        return ""
+    # 이미 YYYYMMDDTHHMM 형식이면 그대로 반환
+    if "T" in date and "-" not in date:
+        return date
+    # YYYY-MM-DD 형식이면 변환
+    try:
+        return dt.strptime(date, "%Y-%m-%d").strftime("%Y%m%dT%H%M")
+    except ValueError:
+        return date
+
+
 class BullReply(BaseModel):
     """Bull 에이전트의 응답 스키마 - 매수 주장"""
     chat: str
@@ -37,7 +51,8 @@ class BullResearcher(Agent):
         history = context.get_cache("history", "")
         last_arg = context.get_cache("current_response", "")
         ticker = context.get_cache("ticker", "")
-        date = context.get_cache("date", "")
+        raw_date = context.get_config("trade_date", "") or context.get_cache("date", "")
+        date = _normalize_date(raw_date)
 
         # config에서 analysis_tasks 가져오기 (기본값: financial, news, fundamental)
         analysis_tasks = context.get_config("analysis_tasks", ["financial", "news", "fundamental"])
@@ -46,7 +61,7 @@ class BullResearcher(Agent):
         reports_text = ""
         for task in analysis_tasks:
             report = context.reports.get(ticker, {}).get(
-                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H"), {}
+                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H") if date else "", {}
             ).get(task, None)
 
             if report:
@@ -122,7 +137,8 @@ class BearResearcher(Agent):
         history = context.get_cache("history", "")
         last_arg = context.get_cache("current_response", "")
         ticker = context.get_cache("ticker", "")
-        date = context.get_cache("date", "")
+        raw_date = context.get_config("trade_date", "") or context.get_cache("date", "")
+        date = _normalize_date(raw_date)
 
         # config에서 analysis_tasks 가져오기 (기본값: financial, news, fundamental)
         analysis_tasks = context.get_config("analysis_tasks", ["financial", "news", "fundamental"])
@@ -131,7 +147,7 @@ class BearResearcher(Agent):
         reports_text = ""
         for task in analysis_tasks:
             report = context.reports.get(ticker, {}).get(
-                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H"), {}
+                dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H") if date else "", {}
             ).get(task, None)
 
             if report:

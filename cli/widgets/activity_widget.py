@@ -1,14 +1,12 @@
 """거래 내역 위젯"""
 
 from textual.app import ComposeResult
-from textual.widgets import Static, Button
+from textual.widgets import Static, Markdown, Collapsible
 from textual.containers import VerticalScroll
 from textual import on
 
 from cli.base import BaseWidget
 from cli.events import ContextUpdated
-from cli.screens.utils import build_trade_label, trader_decision_key, trader_recommendation_key
-from textual.widgets import Static, Collapsible
 
 
 class ActivityWidget(BaseWidget):
@@ -66,10 +64,10 @@ class ActivityWidget(BaseWidget):
         for log in reversed(logs):
             summary = log.get("summary", "")
             content = log.get("content", "")
-            
+
             if content:
                 collapsible = Collapsible(
-                    Static(content),
+                    Markdown(content),
                     title=summary,
                     collapsed=True
                 )
