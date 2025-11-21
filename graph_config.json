@@ -1,0 +1,6 @@
+{
+    "analysis_tasks": ["financial"],
+    "tickers": [],
+    "max_portfolio_size": 5,
+    "rounds": 5
+}

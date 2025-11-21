@@ -1,5 +1,6 @@
-﻿# modules/context/context.py
+# modules/context/context.py
 from datetime import datetime as dt
+import json
 
 class Context:
     def __init__(self):
@@ -50,13 +51,10 @@ class Context:
     def get_config(self, key: str, default=None):
         return self.config.get(key, default)
     
-    def get_default_config(self) -> dict:
-        return {
-            "analysis_tasks": [],
-            "tickers": [],
-            "max_portfolio_size": 5,
-            "rounds": 5,
-        }
+    def set_default_config(self):
+        with open("./graph_config.json", "r") as f:
+            default_config = json.load(f)
+        self.config.update(default_config)
     
     def set_cache(self, **kwargs):
         for key, value in kwargs.items():
@@ -81,3 +79,4 @@ class Context:
 #     "summary": "Report of AAPL on 20240101T0900 generated.",
 #     "content": "Detailed log content here... Example: Report content...",
 # }
+
