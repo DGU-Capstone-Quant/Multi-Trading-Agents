@@ -32,7 +32,7 @@ class CandidateNode(BaseNode):
             return context
 
         random.shuffle(tickers)
-        tickers = tickers[:max_portfolio_size]
+        tickers = tickers[:min(len(tickers), available_slots * 2)]
 
         context.set_cache(candidates=tickers)
         self.state = 'passed'
