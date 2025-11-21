@@ -21,17 +21,22 @@ class ReportSchema(BaseModel):
     recommendation: Literal["Buy", "No Action", "Sell"] = Field(description="Your recommendation based on the analysis")
 
 
-def get_tool_schema(tools: dict) -> BaseModel:
+def get_tool_schema(available_tools: dict) -> BaseModel:
 
     class ToolParameterSchema(BaseModel):
         parameter_name: str = Field(description="Name of the parameter")
         value: Any = Field(description="Value of the parameter")
 
     class ToolSchema(BaseModel):
-        reasoning: str = Field(description="Reasoning for choosing the tool and its parameters")
-        tool_name: str = Field(description="Name of the tool to be used. Must be one of:\n" + ", ".join(map(lambda x: f"{x}", tools.keys())))
-        parameters: list[ToolParameterSchema] = Field(
-            description=f"Available parameters for each tool: {', '.join([f"{v.get('name')}: {v.get('params')}" for v in tools.values()])}"
-            )
+        tool_name: str
+        params: list[ToolParameterSchema]
+
+    class ToolListSchema(BaseModel):
+        reasoning: str = Field(description="Reasoning for choosing the tools and their parameters")
+        tools: list[ToolSchema] = Field(
+            description="List of tools to be used with their parameters.\n" +\
+            "Each tool must be one of:\n" + ", ".join(map(lambda x: f"{x}", available_tools.keys())) + "\n" +\
+            f"Available parameters for each tool: {', '.join([f'{v.get('name')}: {v.get('params')}' for v in available_tools.values()])}"
+        )
     
-    return ToolSchema
+    return ToolListSchema
