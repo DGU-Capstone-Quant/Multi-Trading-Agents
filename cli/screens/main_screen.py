@@ -161,7 +161,6 @@ class MainScreen(BaseScreen):
 
     def __init__(self, context: Context):
         super().__init__(context)
-        self.use_realtime = True
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -223,9 +222,11 @@ class MainScreen(BaseScreen):
 
     @on(Button.Pressed, "#realtime-btn")
     def on_realtime_pressed(self) -> None:
-        self.use_realtime = not self.use_realtime
+        use_realtime = self.context.get_config("use_realtime", True)
+        self.context.set_config(use_realtime=not use_realtime)
+        use_realtime = self.context.get_config("use_realtime")
         btn = self.query_one("#realtime-btn", Button)
-        if self.use_realtime:
+        if use_realtime:
             btn.label = "[실시간] 모드 ON"
             btn.variant = "primary"
         else:
@@ -250,7 +251,7 @@ class MainScreen(BaseScreen):
             return self.notify("종목을 입력해주세요 (예: AAPL, GOOGL)", severity="error", timeout=5)
 
         trade_date = None
-        if self.use_realtime:
+        if self.context.get_config("use_realtime", True):
             trade_date = datetime.now().strftime("%Y-%m-%d")
             self.notify(f"[실시간] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
         else:
