@@ -50,11 +50,18 @@ class PortfolioWidget(BaseWidget):
         await portfolio_list.remove_children()
         portfolio_data = self.context.get_cache("portfolio", {}) or {}
         if isinstance(portfolio_data, dict):
-            tickers = sorted(portfolio_data.keys())
+            raw = portfolio_data.keys()
         elif isinstance(portfolio_data, (list, set, tuple)):
-            tickers = list(portfolio_data)
+            raw = portfolio_data
         else:
-            tickers = []
+            raw = []
+
+        tickers = []
+        for t in raw:
+            norm = str(t).strip().upper()
+            if norm and norm not in tickers:
+                tickers.append(norm)
+        tickers.sort()
         for ticker in (tickers or ["보유 종목 없음"]):
             widget = Button(ticker, id=None, classes="portfolio-item") if tickers else Static(ticker, classes="portfolio-item")
             await portfolio_list.mount(widget)

@@ -12,9 +12,8 @@ from textual import on
 from modules.context import Context
 from cli.base import BaseScreen
 from cli.widgets import PortfolioWidget, ActivityWidget
-from graphs.main import create_main_graph
-from cli.screens.utils import get_report_from_context, make_progress_key
 from cli.events import ContextUpdated
+from graphs.main.graph import create_main_graph
 
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -250,6 +249,7 @@ class MainScreen(BaseScreen):
         date_input = self.query_one("#date-input", Input).value.strip()
 
         tickers = [t.strip().upper() for t in ticker_input.split(",")] if ticker_input else ["AAPL", "GOOGL", "MSFT"]
+        tickers = [t for t in tickers if t]  # 공백 제거 후 빈 값 제외
 
         trade_date = None
         if self.use_realtime:
@@ -268,7 +268,10 @@ class MainScreen(BaseScreen):
                 trade_date = datetime.now().strftime("%Y-%m-%d")
                 self.notify(f"[오늘 날짜] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
 
-        threading.Thread(target=lambda: self._run_graph(tickers, trade_date), daemon=True).start()
+        # on_update를 먼저 설정해 초기 set_cache도 UI에 반영
+        self.context.on_update = self._notify_context_update
+        self._prepare_trade_context(tickers, trade_date)
+        threading.Thread(target=self._run_graph, daemon=True).start()
 
     def _format_graph_date(self, trade_date: str) -> str:
         """그래프 노드에서 요구하는 YYYYMMDDTHHMM 포맷으로 변환."""
@@ -277,18 +280,6 @@ class MainScreen(BaseScreen):
         except ValueError:
             dt_obj = datetime.now()
         return dt_obj.strftime("%Y%m%dT%H%M")
-
-    def _init_trade_progress(self, tickers: list, trade_date: str) -> None:
-        """그래프 시작 시 진행중 상태를 등록해 중간에도 조회 가능하게 한다."""
-        keys = self.context.get_cache("trade_progress_keys", []) or []
-        for ticker in tickers:
-            progress_key = make_progress_key(ticker, trade_date)
-            data = self.context.get_cache(progress_key, {}) or {"ticker": ticker, "trade_date": trade_date}
-            data.setdefault("status", "debate_in_progress")
-            self.context.set_cache(**{progress_key: data})
-            if progress_key not in keys:
-                keys.append(progress_key)
-        self.context.set_cache(trade_progress_keys=keys)
 
     def _refresh_widgets(self) -> None:
         """컨텍스트 변경 시 즉시 UI를 갱신"""
@@ -335,14 +326,64 @@ class MainScreen(BaseScreen):
             portfolio[ticker] = {"added_at": trade_date}
             self.context.set_cache(portfolio=portfolio)
 
-    def _run_graph(self, tickers: list, trade_date: str) -> None:
-        graph_date = self._format_graph_date(trade_date)
-        self._normalize_portfolio()
-        self.context.on_update = lambda: (
-            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated())) and\
+    def _notify_context_update(self) -> None:
+        """Context 업데이트 콜백: 위젯/구독자 새로고침"""
+        self._finalize_trade_if_ready()
+        app_thread_id = getattr(self.app, "_thread_id", None)
+        if app_thread_id and app_thread_id == threading.get_ident():
+            # 이미 앱 스레드인 경우 직접 호출
+            self.app.post_message(ContextUpdated())
+            self._refresh_widgets()
+        else:
+            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated()))
             self.app.call_from_thread(self._refresh_widgets)
-        )
 
+    def _finalize_trade_if_ready(self) -> None:
+        """매니저 결정이 존재하면 진행 상태를 완료로 전환"""
+        ticker = self.context.get_cache("ticker", "")
+        trade_date = self.context.get_cache("trade_date", "") or datetime.now().strftime("%Y-%m-%d")
+        if not ticker or not trade_date:
+            return
+
+        decision_obj = self.context.get_cache("manager_decision", {})
+        if not decision_obj:
+            return
+
+        decision = ""
+        recommendation = ""
+        if isinstance(decision_obj, dict):
+            decision = decision_obj.get("decision", "") or ""
+            recommendation = decision_obj.get("plan", "") or decision_obj.get("rationale", "") or ""
+        else:
+            decision = str(decision_obj)
+
+        if not decision and not recommendation:
+            return
+
+        # 이미 기록된 동일 날짜/티커 결정이 있으면 중복 저장 방지
+        existing_decision = self.context.get_cache(f"{ticker}_{trade_date}_trader_decision", "")
+        if existing_decision == (decision or recommendation):
+            return
+
+        self._record_trade(ticker, trade_date, decision, recommendation)
+
+    def _prepare_trade_context(self, tickers: list[str], trade_date: str) -> None:
+        self._normalize_portfolio()
+        # 중복/공백 제거 및 대문자 정규화
+        deduped_tickers = []
+        for t in tickers:
+            norm = t.strip().upper()
+            if norm and norm not in deduped_tickers:
+                deduped_tickers.append(norm)
+
+        normalized_date = self._format_graph_date(trade_date) if trade_date else self._format_graph_date(datetime.now().strftime("%Y-%m-%d"))
+        human_date = trade_date or datetime.now().strftime("%Y-%m-%d")
+        # rank 그래프는 config.tickers를 사용하므로 config도 맞춰준다
+        # self.context.set_config(tickers=deduped_tickers, max_portfolio_size=max(len(deduped_tickers), 1))
+        # self.context.set_cache(tickers=deduped_tickers, date=normalized_date, trade_date=human_date)
+
+    def _run_graph(self) -> None:
+        self.context.on_update = self._notify_context_update
         graph = create_main_graph()
         graph.run(self.context)
         self.app.call_from_thread(self._refresh_widgets)
@@ -368,28 +409,20 @@ class MainScreen(BaseScreen):
             }
         )
 
-        # 진행 상태 업데이트 (완료)
-        progress_key = make_progress_key(ticker, trade_date)
-        progress_data = self.context.get_cache(progress_key, {}) or {"ticker": ticker, "trade_date": trade_date}
-        progress_data.update({
-            "status": "completed",
-            "decision": clean_decision,
-            "recommendation": clean_reco,
-        })
-        keys = self.context.get_cache("trade_progress_keys", []) or []
-        if progress_key not in keys:
-            keys.append(progress_key)
-        self.context.set_cache(trade_progress_keys=keys, **{progress_key: progress_data})
-
         debates = self.context.get_cache("completed_debates", []) or []
         if not any(d.get("ticker") == ticker and d.get("trade_date") == trade_date for d in debates):
             debates.append({"ticker": ticker, "trade_date": trade_date})
             self.context.set_cache(completed_debates=debates)
 
         self._add_portfolio_ticker(ticker, trade_date)
-        # 컨텍스트 변경을 즉시 UI에 반영
-        self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated()))
-        self.app.call_from_thread(self._refresh_widgets)
+        # 컨텍스트 변경을 즉시 UI에 반영 (스레드 확인)
+        app_thread_id = getattr(self.app, "_thread_id", None)
+        if app_thread_id and app_thread_id == threading.get_ident():
+            self.app.post_message(ContextUpdated())
+            self._refresh_widgets()
+        else:
+            self.app.call_from_thread(lambda: self.app.post_message(ContextUpdated()))
+            self.app.call_from_thread(self._refresh_widgets)
 
     def action_quit(self) -> None:
         self.app.exit()

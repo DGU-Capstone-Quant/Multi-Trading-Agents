@@ -11,7 +11,7 @@ def main():
     context = Context()
     context.set_config(
         analysis_tasks=["financial",],
-        tickers=["AAPL",],
+        tickers=["AAPL", "GOOGL", "MSFT", "TSLA"],
         max_portfolio_size=1,
         rounds=2,
     )
@@ -19,7 +19,7 @@ def main():
     # 기본 날짜/종목 맵 생성 (최근 5 거래일)
     date_ticker_map = {}
     base_date = datetime.now()
-    tickers = ["AAPL", "GOOGL", "MSFT"]
+    tickers = ["AAPL", "GOOGL", "MSFT", "TSLA"]
 
     for i in range(5):
         trade_date = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")

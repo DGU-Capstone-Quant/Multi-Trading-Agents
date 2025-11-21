@@ -174,17 +174,16 @@ class StockChartScreen(BaseScreen):
         buy_points_x, buy_points_y, sell_points_x, sell_points_y = [], [], [], []
         hold_points_x, hold_points_y = [], []
 
-        # 모든 거래 이벤트 수집 (진행중 + 완료)
-        trade_events = []
-        seen_dates = set()
-        for key in self.context.get_cache("trade_progress_keys", []):
-            data = self.context.get_cache(key, {}) or {}
-            if data.get("ticker") == self.ticker and data.get("trade_date"):
-                seen_dates.add(data["trade_date"])
-                trade_events.append(data["trade_date"])
+        # 모든 거래 이벤트 수집 (현재 진행 + 완료)
+        trade_events = set()
+        current_ticker = self.context.get_cache("ticker", "")
+        current_date = self.context.get_cache("trade_date", "") or self.context.get_cache("date", "")
+        if current_ticker == self.ticker and current_date:
+            trade_events.add(current_date)
+
         for debate in self.context.get_cache("completed_debates", []):
-            if debate.get("ticker") == self.ticker and debate.get("trade_date") and debate["trade_date"] not in seen_dates:
-                trade_events.append(debate["trade_date"])
+            if debate.get("ticker") == self.ticker and debate.get("trade_date"):
+                trade_events.add(debate["trade_date"])
 
         for trade_date in trade_events:
             # 차트에 없는 날짜면 가장 가까운 날짜로 매핑
@@ -249,25 +248,34 @@ class StockChartScreen(BaseScreen):
     def _collect_trade_history_entries(self) -> list:
         entries, seen = [], set()
 
-        for key in self.context.get_cache("trade_progress_keys", []):
-            data = self.context.get_cache(key, {})
-            if data.get("ticker") == self.ticker:
-                seen.add(f"{data['ticker']}_{data['trade_date']}")
-                ticker, trade_date = data["ticker"], data["trade_date"]
-                entries.append({
-                    "ticker": ticker, "trade_date": trade_date, "status": data.get("status", "completed"),
-                    "decision": self.context.get_cache(trader_decision_key(ticker, trade_date), ""),
-                    "recommendation": self.context.get_cache(trader_recommendation_key(ticker, trade_date), ""),
-                    "is_active": data.get("status") != "completed"
-                })
+        current_ticker = self.context.get_cache("ticker", "")
+        current_date = self.context.get_cache("trade_date", "") or self.context.get_cache("date", "")
+        if current_ticker == self.ticker and current_date:
+            decision = self.context.get_cache(trader_decision_key(self.ticker, current_date), "") or self.context.get_cache("trader_decision", "")
+            recommendation = self.context.get_cache(trader_recommendation_key(self.ticker, current_date), "") or self.context.get_cache("trader_recommendation", "")
+            status = "completed" if decision else "in_progress"
+            seen.add(f"{self.ticker}_{current_date}")
+            entries.append({
+                "ticker": self.ticker,
+                "trade_date": current_date,
+                "status": status,
+                "decision": decision,
+                "recommendation": recommendation,
+                "is_active": status != "completed",
+            })
 
         for debate in self.context.get_cache("completed_debates", []):
-            if debate.get("ticker") == self.ticker and f"{debate['ticker']}_{debate['trade_date']}" not in seen:
-                ticker, trade_date = debate["ticker"], debate["trade_date"]
+            ticker = debate.get("ticker")
+            trade_date = debate.get("trade_date")
+            if ticker == self.ticker and ticker and trade_date and f"{ticker}_{trade_date}" not in seen:
+                decision = self.context.get_cache(trader_decision_key(ticker, trade_date), "") or self.context.get_cache("trader_decision", "")
+                recommendation = self.context.get_cache(trader_recommendation_key(ticker, trade_date), "") or self.context.get_cache("trader_recommendation", "")
                 entries.append({
-                    "ticker": ticker, "trade_date": trade_date, "status": debate.get("status", "completed"),
-                    "decision": self.context.get_cache(trader_decision_key(ticker, trade_date), ""),
-                    "recommendation": self.context.get_cache(trader_recommendation_key(ticker, trade_date), ""),
+                    "ticker": ticker,
+                    "trade_date": trade_date,
+                    "status": debate.get("status", "completed"),
+                    "decision": decision,
+                    "recommendation": recommendation,
                     "is_active": False
                 })
 

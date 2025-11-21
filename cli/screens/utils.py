@@ -110,7 +110,7 @@ def get_report_from_context(context, ticker: str, trade_date: str, report_type: 
 def format_status_text(status: str) -> str:
     """상태 텍스트 포맷"""
     status_map = {
-        "debate_in_progress": "상태: 토론 진행 중",
+        "in_progress": "상태: 진행 중",
         "plan_ready": "상태: 토론 완료 - 트레이더 검토 중",
         "completed": "상태: 거래 완료",
     }
@@ -122,7 +122,7 @@ def build_trade_label(entry: Dict) -> str:
     status = entry.get("status", "")
     status_labels = {
         "plan_ready": "트레이더 검토 중",
-        "debate_in_progress": "토론 진행 중",
+        "in_progress": "진행 중",
         "completed": entry.get("decision") or "거래 완료",
     }
     status_label = status_labels.get(status, "진행 중")
