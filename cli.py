@@ -7,7 +7,6 @@ from cli import TradingDashboardApp
 
 def main():
     """트레이딩 대시보드 CLI 진입점"""
-    # Context 기본값은 main_graph에서 설정하도록 함
     app = TradingDashboardApp(Context())
     app.run()
 

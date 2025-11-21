@@ -33,12 +33,12 @@ class DebateSelectionNode(BaseNode):
         super().__init__(name)
 
     def run(self, context: Context) -> Context:
-        # config에서 먼저 tickers를 가져오고, 없으면 cache의 recommendation 사용
-        tickers = context.get_config('tickers', [])
+        # cache에서 먼저 tickers를 가져오고 (main_screen에서 설정), 없으면 recommendation 사용
+        tickers = context.get_cache('tickers', [])
         if not tickers:
             tickers = context.get_cache("recommendation", [])
         if not tickers:
-            tickers = context.get_cache('tickers', [])
+            tickers = context.get_config('tickers', [])
 
         if not tickers:
             raise ValueError("No tickers available for analysis.")
@@ -180,9 +180,11 @@ class ManagerNode(BaseNode):
             # 테스트: 모든 결정(BUY, HOLD, SELL)을 portfolio에 추가, 추후 Trader로 옮길 예정
             portfolio = context.get_cache("portfolio", {}) or {}
             trade_date = context.get_config("trade_date", date)
+            # 거래 내역을 리스트로 저장 (여러 날짜의 거래 기록)
             if ticker not in portfolio:
-                portfolio[ticker] = {"added_at": trade_date, "decision": plan.get("decision", "")}
-                context.set_cache(portfolio=portfolio)
+                portfolio[ticker] = []
+            portfolio[ticker].append({"added_at": trade_date, "decision": plan.get("decision", "")})
+            context.set_cache(portfolio=portfolio)
 
         except Exception as e:
             print("[ManagerNode][save plan]", e)

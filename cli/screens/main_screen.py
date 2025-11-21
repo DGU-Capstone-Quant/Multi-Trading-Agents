@@ -267,6 +267,7 @@ class MainScreen(BaseScreen):
                 self.notify(f"[오늘 날짜] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
 
         self.context.set_config(tickers=tickers, trade_date=trade_date)
+        self.context.set_cache(tickers=tickers, date=trade_date)
         self.context.on_update = self._notify_context_update
         threading.Thread(target=self._run_graph, daemon=True).start()
 
@@ -295,8 +296,10 @@ class MainScreen(BaseScreen):
 
     def _run_graph(self) -> None:
         self.context.on_update = self._notify_context_update
+        self.context.add_log(summary="[시스템] 그래프 실행 시작...")
         graph = create_main_graph()
         graph.run(self.context)
+        self.context.add_log(summary="[시스템] 그래프 실행 완료!")
         self.app.call_from_thread(self._refresh_widgets)
 
     def action_quit(self) -> None:
