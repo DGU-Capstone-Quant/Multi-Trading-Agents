@@ -5,10 +5,10 @@ from graphs.trader import nodes as trader_nodes
 from modules.context import Context
 
 # 설정
-APP_KEY = "" # PS4zRGLHMEMJnPlKbfMAc5sHRE3Ou082JC67
-APP_SECRET = "" # PC8ZHFBwvWaKdXqfRhSPGBWtuPuqqSU9pxWzqRVexSWD4EJc4iZ9R3fRDJ4zQZjb4geIaOBzjygQg4evhfdmWY8aac2wSwwBOkb5KWlx3LmeXtpsrDUohFtUwL4hHPiGHPZ4i72UblMDYRz5WtnsbTC31teQkPzNrqqBkAHnOZZ3xrojgQ4=
+APP_KEY = "" 
+APP_SECRET = ""
 RAPID_API_KEY = ""
-ACCOUNT_NO = "" # 50156991
+ACCOUNT_NO = ""
 IS_MOCK = True
 TICKERS = ["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]
 ANALYSIS_TASKS = ["financial"]
