@@ -190,16 +190,21 @@ class MainScreen(BaseScreen):
                         placeholder="예: AAPL, GOOGL (비우면 기본값)",
                         id="ticker-input",
                         classes="api-key-input control-field",
+                        value=",".join(self.context.get_config("tickers", [])),
                     )
                     yield Label("날짜:", classes="api-key-label control-field")
                     yield Input(
                         placeholder="예: 2024-01-15 (비우면 오늘)",
                         id="date-input",
                         classes="api-key-input control-field",
+                        value=self.context.get_config("trade_date", ""),
                     )
                 yield Static(id="control-spacer", expand=True)
                 with Horizontal(id="control-actions"):
-                    yield Button("[실시간] 모드 ON", id="realtime-btn", variant="primary", classes="control-btn")
+                    if self.context.get_config("use_realtime", True):
+                        yield Button("[실시간] 모드 ON", id="realtime-btn", variant="primary", classes="control-btn")
+                    else:
+                        yield Button("[날짜] 모드 ON", id="realtime-btn", variant="warning", classes="control-btn")
                     yield Button("거래 실행 (Ctrl+D)", id="debate-btn", variant="success", classes="control-btn")
 
         with Horizontal(id="main-content"):
@@ -232,20 +237,25 @@ class MainScreen(BaseScreen):
         else:
             btn.label = "[날짜] 모드 ON"
             btn.variant = "warning"
+    
+    @on(Input.Changed, "#ticker-input")
+    def on_ticker_changed(self, event: Input.Changed) -> None:
+        ticker_input = event.value.strip()
+        tickers = [t.strip().upper() for t in ticker_input.split(",")]
+        tickers = [t for t in tickers if t]
+        self.context.set_config(tickers=tickers)
+
+    @on(Input.Changed, "#date-input")
+    def on_date_changed(self, event: Input.Changed) -> None:
+        date_input = event.value.strip()
+        self.context.set_config(trade_date=date_input)
 
     @on(Button.Pressed, "#debate-btn")
     def on_debate_pressed(self) -> None:
         if not os.getenv("RAPID_API_KEY") or not os.getenv("GOOGLE_API_KEY"):
             return self.notify("API 키를 먼저 입력해주세요 (RAPID API, GOOGLE API)", severity="error", timeout=5)
 
-        ticker_input = self.query_one("#ticker-input", Input).value.strip()
-        date_input = self.query_one("#date-input", Input).value.strip()
-
-        if not ticker_input:
-            return self.notify("종목을 입력해주세요 (예: AAPL, GOOGL)", severity="error", timeout=5)
-
-        tickers = [t.strip().upper() for t in ticker_input.split(",")]
-        tickers = [t for t in tickers if t]
+        tickers = self.context.get_config("tickers", [])
 
         if not tickers:
             return self.notify("종목을 입력해주세요 (예: AAPL, GOOGL)", severity="error", timeout=5)
@@ -255,6 +265,7 @@ class MainScreen(BaseScreen):
             trade_date = datetime.now().strftime("%Y-%m-%d")
             self.notify(f"[실시간] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
         else:
+            date_input = self.context.get_config("trade_date", "").strip()
             if date_input:
                 try:
                     datetime.strptime(date_input, "%Y-%m-%d")
@@ -266,8 +277,7 @@ class MainScreen(BaseScreen):
                 trade_date = datetime.now().strftime("%Y-%m-%d")
                 self.notify(f"[오늘 날짜] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
 
-        self.context.set_config(tickers=tickers, trade_date=trade_date)
-        self.context.set_cache(tickers=tickers, date=trade_date)
+
         self.context.on_update = self._notify_context_update
         threading.Thread(target=self._run_graph, daemon=True).start()
 
@@ -296,10 +306,8 @@ class MainScreen(BaseScreen):
 
     def _run_graph(self) -> None:
         self.context.on_update = self._notify_context_update
-        self.context.add_log(summary="[시스템] 그래프 실행 시작...")
         graph = create_main_graph()
         graph.run(self.context)
-        self.context.add_log(summary="[시스템] 그래프 실행 완료!")
         self.app.call_from_thread(self._refresh_widgets)
 
     def action_quit(self) -> None:

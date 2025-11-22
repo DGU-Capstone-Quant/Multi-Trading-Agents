@@ -7,6 +7,5 @@ class GraphBeginNode(BaseNode):
         super().__init__(name)
     
     def run(self, context: Context) -> Context:
-        context.set_default_config()
         self.state = 'passed'
         return context

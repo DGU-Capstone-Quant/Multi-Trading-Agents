@@ -1,6 +1,7 @@
 # modules/context/context.py
 from datetime import datetime as dt
 import json
+import os
 
 class Context:
     def __init__(self):
@@ -9,7 +10,29 @@ class Context:
         self.config = {}        # 설정 저장용:      에이전트의 동작이나 api키 등을 저장
         self.cache = {}         # 캐시 저장용:      에이전트끼리 공유할 임시 데이터 저장
         self.logs = []          # 로그 저장용:      에이전트의 동작 기록 저장
-        self.on_update = None  # 업데이트 콜백 함수
+        self.on_update = None   # 업데이트 콜백 함수
+        self.load()
+        self.set_default_config()
+    
+    def load(self):
+        if not os.path.exists("./saved_context.json"):
+            return
+        with open("./saved_context.json", "r") as f:
+            data = json.load(f)
+            self.reports = data.get("reports", {})
+            self.translations = data.get("translations", {})
+            self.config = data.get("config", {})
+            self.logs = data.get("logs", [])
+    
+    def save(self):
+        data = {
+            "reports": self.reports,
+            "translations": self.translations,
+            "config": self.config,
+            "logs": self.logs,
+        }
+        with open("./saved_context.json", "w") as f:
+            json.dump(data, f, indent=4)
 
     def _on_update(self):
         if self.on_update:
@@ -47,6 +70,7 @@ class Context:
     def set_config(self, **kwargs):
         for key, value in kwargs.items():
             self.config[key] = value
+        self.save()
     
     def get_config(self, key: str, default=None):
         return self.config.get(key, default)
@@ -72,6 +96,7 @@ class Context:
         }
         self.logs.append(log_entry)
         self._on_update()
+        self.save()
 
 # log structure example
 # log = {
