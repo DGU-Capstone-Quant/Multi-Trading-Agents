@@ -36,6 +36,45 @@ def _save_portfolio(portfolio: dict):
     )
 
 
+class TickerLoopNode(BaseNode):
+    """tickers를 순회하며 각 ticker에 대해 후속 노드들을 실행하는 노드"""
+    def __init__(self, name: str = "TickerLoop"):
+        super().__init__(name)
+        self._current_ticker_index = 0
+        self._tickers = []
+
+    def run(self, context: Context) -> Context:
+        # 첫 실행 시 tickers 초기화
+        if self._current_ticker_index == 0:
+            self._tickers = context.get_config("tickers", [])
+            if not self._tickers:
+                print(f"[{self.name}] No tickers configured")
+                self.state = 'passed'
+                return context
+
+        # 현재 ticker 설정
+        ticker = self._tickers[self._current_ticker_index]
+        context.set_cache(ticker=ticker)
+        print(f"\n[{self.name}] Processing ticker {self._current_ticker_index + 1}/{len(self._tickers)}: {ticker}")
+
+        self.state = 'passed'
+
+        return context
+
+    def has_next_ticker(self) -> bool:
+        """다음 ticker가 있는지 확인"""
+        return self._current_ticker_index < len(self._tickers) - 1
+
+    def advance_ticker(self):
+        """다음 ticker로 이동"""
+        self._current_ticker_index += 1
+
+    def reset(self):
+        """루프 상태 리셋"""
+        self._current_ticker_index = 0
+        self._tickers = []
+
+
 class RiskCheckerNode(BaseNode):
     def __init__(self, name: str = "RiskChecker"):
         super().__init__(name)
@@ -72,14 +111,11 @@ class TraderNode(BaseNode):
         self.agent = TraderAgent(name=f"{name}")
 
     def run(self, context: Context) -> Context:
+        ticker = context.get_cache("ticker", "UNKNOWN")
+
         context = self.agent.run(context)
         self.state = 'passed'
-
-        ticker = context.get_cache("ticker", "UNKNOWN")
-        trade_date = context.get_cache("trade_date", "UNKNOWN_DATE")
-        report_dir = context.get_cache("report_dir", "results")
-        reports_dir = Path(report_dir)
-        reports_dir.mkdir(parents=True, exist_ok=True)
+        trade_date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
 
         trader_decision = context.get_cache("trader_decision", {})
         risk_assessment = context.get_cache("risk_assessment", {})
@@ -87,6 +123,11 @@ class TraderNode(BaseNode):
         decision = trader_decision.get("decision", "UNKNOWN")
         recommendation = trader_decision.get("recommendation", "No recommendation")
         confidence = trader_decision.get("confidence", 0)
+        trade_dt_raw = context.get_config("trade_date", "") or context.get_cache("date", "")
+        try:
+            trade_dt_display = datetime.strptime(trade_dt_raw, "%Y%m%dT%H%M").strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            trade_dt_display = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -101,6 +142,7 @@ class TraderNode(BaseNode):
         except Exception as e:
             print(f"[{self.name}][log]", e)
 
+        # 보고서를 context에 저장
         md = [
             f"# Trading Decision for {ticker}",
             f"**Date**: {trade_date}",
@@ -118,7 +160,10 @@ class TraderNode(BaseNode):
         ]
 
         trader_decision_content = "\n".join(md)
-        (reports_dir / "trader_decision.md").write_text(trader_decision_content, encoding="utf-8")
+        try:
+            context.set_report(ticker, trade_date, "trader_decision", trader_decision_content)
+        except Exception as e:
+            print(f"[{self.name}][save report]", e)
 
         print(f"\n[{self.name}] Trading Decision:")
         print(f"Decision: {decision} (Confidence: {confidence}%)")
@@ -177,9 +222,8 @@ class TraderNode(BaseNode):
                         # 파일에서 포트폴리오 불러오기
                         portfolio = _load_portfolio()
 
-                        # 거래 히스토리 추가
                         trade_record = {
-                            'added_at': context.get_cache('date', 'UNKNOWN'),
+                            'added_at': trade_dt_display,
                             'decision': decision,
                             'quantity': quantity,
                             'confidence': trader_decision.get('confidence', 50),
@@ -202,8 +246,8 @@ class TraderNode(BaseNode):
                         else:
                             print(f"[{self.name}] Portfolio Updated: {ticker} (HOLD)")
 
-                        # 메모리에도 캐시 (선택사항)
                         context.set_cache(portfolio=portfolio)
+                        context.save()
 
                 except Exception as e:
                     print(f"[{self.name}] [ERROR] Order execution error: {e}")
@@ -211,7 +255,44 @@ class TraderNode(BaseNode):
                     traceback.print_exc()
             else:
                 print(f"\n[{self.name}] [WARNING] KIS Trader not initialized - Order NOT executed")
+                # kis_trader 없어도 포트폴리오에 기록 (시뮬레이션)
+                self._save_to_portfolio(context, ticker, decision, trader_decision)
         else:
             print(f"\n[{self.name}] [INFO] Decision is {decision} - No order execution")
 
         return context
+
+    def _save_to_portfolio(self, context: Context, ticker: str, decision: str, trader_decision: dict):
+        """Portfolio에 거래 기록 저장 (시뮬레이션)"""
+        portfolio = _load_portfolio()
+
+        ai_quantity = trader_decision.get("quantity", 1)
+        config_quantity = context.get_config("order_quantity", 1)
+        quantity = ai_quantity if ai_quantity and ai_quantity > 0 else config_quantity
+        trade_dt_raw = context.get_config("trade_date", "") or context.get_cache("date", "")
+        try:
+            trade_dt_display = datetime.strptime(trade_dt_raw, "%Y%m%dT%H%M").strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            trade_dt_display = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        trade_record = {
+            'added_at': trade_dt_display,
+            'decision': decision,
+            'quantity': quantity,
+            'confidence': trader_decision.get('confidence', 50),
+            'order_no': 'SIMULATED',
+        }
+
+        if ticker not in portfolio:
+            portfolio[ticker] = []
+
+        portfolio[ticker].append(trade_record)
+
+        # 파일에 저장
+        _save_portfolio(portfolio)
+
+        # context에도 저장
+        context.set_cache(portfolio=portfolio)
+        context.save()
+
+        print(f"[{self.name}] Portfolio Updated (Simulated): {ticker} ({decision}, {quantity} shares)")

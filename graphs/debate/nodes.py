@@ -75,6 +75,7 @@ class BullNode(BaseNode):
         self.agent = BullResearcher(name=f"{name} Analyst")
 
     def run(self, context: Context) -> Context:
+        ticker = context.get_cache("ticker", "")
         # Bull 에이전트 실행
         context = self.agent.run(context)
         self.state = 'passed'
@@ -104,6 +105,7 @@ class BearNode(BaseNode):
         self.agent = BearResearcher(name=f"{name} Analyst")
 
     def run(self, context: Context) -> Context:
+        ticker = context.get_cache("ticker", "")
         # Bear 에이전트 실행
         context = self.agent.run(context)
         self.state = 'passed'
@@ -154,12 +156,7 @@ class ManagerNode(BaseNode):
         try:
             plan = context.get_cache("manager_decision") or {}
             ticker = context.get_cache("ticker", "UNKNOWN")
-            raw_date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
-            # YYYY-MM-DD → YYYYMMDDTHHMM 변환
-            if raw_date and "-" in raw_date:
-                date = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%Y%m%dT%H%M")
-            else:
-                date = raw_date
+            date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
 
             # 마크다운 내용 구성
             md = [
@@ -176,15 +173,6 @@ class ManagerNode(BaseNode):
 
             # Context의 reports에 저장
             context.set_report(ticker, date, "investment_plan", "\n".join(md))
-
-            # 테스트: 모든 결정(BUY, HOLD, SELL)을 portfolio에 추가, 추후 Trader로 옮길 예정
-            portfolio = context.get_cache("portfolio", {}) or {}
-            trade_date = context.get_config("trade_date", date)
-            # 거래 내역을 리스트로 저장 (여러 날짜의 거래 기록)
-            if ticker not in portfolio:
-                portfolio[ticker] = []
-            portfolio[ticker].append({"added_at": trade_date, "decision": plan.get("decision", "")})
-            context.set_cache(portfolio=portfolio)
 
         except Exception as e:
             print("[ManagerNode][save plan]", e)

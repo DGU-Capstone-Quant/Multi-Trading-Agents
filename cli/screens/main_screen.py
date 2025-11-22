@@ -13,6 +13,7 @@ from cli.base import BaseScreen
 from cli.widgets import PortfolioWidget, ActivityWidget
 from cli.events import ContextUpdated
 from graphs.main.graph import create_main_graph
+from graphs.trader.factory import create_trader_graph
 
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("PYTHONUTF8", "1")
@@ -192,9 +193,9 @@ class MainScreen(BaseScreen):
                         classes="api-key-input control-field",
                         value=",".join(self.context.get_config("tickers", [])),
                     )
-                    yield Label("날짜:", classes="api-key-label control-field")
+                    yield Label("날짜/시간:", classes="api-key-label control-field")
                     yield Input(
-                        placeholder="예: 2024-01-15 (비우면 오늘)",
+                        placeholder="예: 20240115T0930 (비우면 현재)",
                         id="date-input",
                         classes="api-key-input control-field",
                         value=self.context.get_config("trade_date", ""),
@@ -262,20 +263,20 @@ class MainScreen(BaseScreen):
 
         trade_date = None
         if self.context.get_config("use_realtime", True):
-            trade_date = datetime.now().strftime("%Y-%m-%d")
+            trade_date = datetime.now().strftime("%Y%m%dT%H%M")
             self.notify(f"[실시간] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
         else:
             date_input = self.context.get_config("trade_date", "").strip()
             if date_input:
                 try:
-                    datetime.strptime(date_input, "%Y-%m-%d")
+                    datetime.strptime(date_input, "%Y%m%dT%H%M")
                     trade_date = date_input
                     self.notify(f"[백테스팅] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
                 except ValueError:
-                    return self.notify("날짜 형식 오류 (예: 2024-01-15)", severity="error", timeout=5)
+                    return self.notify("날짜/시간 형식 오류 (예: 20240115T0930)", severity="error", timeout=5)
             else:
-                trade_date = datetime.now().strftime("%Y-%m-%d")
-                self.notify(f"[오늘 날짜] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
+                trade_date = datetime.now().strftime("%Y%m%dT%H%M")
+                self.notify(f"[현재 시간] 분석 시작 | 종목: {', '.join(tickers)} | 날짜: {trade_date}", severity="information", timeout=3)
 
 
         self.context.on_update = self._notify_context_update
@@ -308,6 +309,11 @@ class MainScreen(BaseScreen):
         self.context.on_update = self._notify_context_update
         graph = create_main_graph()
         graph.run(self.context)
+
+        # trader graph 실행
+        trader_graph = create_trader_graph()
+        trader_graph.run(self.context)
+
         self.app.call_from_thread(self._refresh_widgets)
 
     def action_quit(self) -> None:

@@ -2,6 +2,7 @@
 
 import plotext as plt
 from datetime import datetime, timedelta
+from typing import List, Dict, Any
 from textual.app import ComposeResult
 from textual.widgets import Header, Footer, Static, Button
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -12,6 +13,46 @@ from modules.context import Context
 from modules.utils.fetch import fetch_time_series_intraday, fetch_time_series_daily, fetch_time_series_weekly
 from cli.base import BaseScreen
 from cli.events import ContextUpdated
+
+def _trades_from_context_reports(context: Context, ticker: str) -> List[Dict[str, Any]]:
+    """saved_context의 trader_decision 리포트로부터 거래 결정을 추출"""
+    trades: List[Dict[str, Any]] = []
+    reports = context.reports.get(ticker, {}) or {}
+    for date_key, items in reports.items():
+        decision_md = items.get("trader_decision", "")
+        if not decision_md:
+            continue
+        # 날짜 키를 표시용으로 사용 (YYYYMMDDTHH -> YYYY-MM-DD HH:00)
+        try:
+            added_at = datetime.strptime(date_key, "%Y%m%dT%H").strftime("%Y-%m-%d %H:00")
+        except Exception:
+            added_at = date_key
+        # 간단 파싱: 첫 번째 "**DECISION**" 라인에서 BUY/HOLD/SELL 추출
+        decision = "N/A"
+        quantity = None
+        for line in str(decision_md).splitlines():
+            if "**" in line and ("BUY" in line or "SELL" in line or "HOLD" in line):
+                # 예: "**BUY** (Confidence: 80%)"
+                for opt in ("BUY", "SELL", "HOLD"):
+                    if opt in line:
+                        decision = opt
+                        break
+            if "주" in line and "(" in line and ")" in line and "Confidence" not in line:
+                # 간단히 숫자만 추출
+                try:
+                    qty_tokens = [s for s in line.split() if s.isdigit()]
+                    if qty_tokens:
+                        quantity = int(qty_tokens[0])
+                except Exception:
+                    quantity = None
+        trades.append({
+            "added_at": added_at,
+            "decision": decision,
+            "quantity": quantity,
+            "confidence": None,
+            "order_no": "CONTEXT",
+        })
+    return trades
 
 # 차트 타입 옵션: (라벨, 타입, 기본 표시 범위)
 CHART_TYPE_OPTIONS = [
@@ -271,7 +312,15 @@ class StockChartScreen(BaseScreen):
             # 데이터가 없으면 가장 최근 데이터 사용
             df_filtered = df_chart.tail(min(self.display_range, len(df_chart)))
 
-        dates = df_filtered['timestamp'].dt.strftime('%Y-%m-%d').tolist()
+        _, chart_type_str, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        if chart_type_str == "hourly":
+            dates = df_filtered['timestamp'].dt.strftime('%m-%d %H:00').tolist()
+        else:
+            dates = df_filtered['timestamp'].dt.strftime('%Y-%m-%d').tolist()
+        timestamps = [
+            ts.to_pydatetime() if hasattr(ts, "to_pydatetime") else ts
+            for ts in df_filtered['timestamp'].tolist()
+        ]
         close_prices = df_filtered['close'].tolist()
 
         x = list(range(len(df_filtered)))
@@ -281,13 +330,44 @@ class StockChartScreen(BaseScreen):
         buy_points_x, buy_points_y, sell_points_x, sell_points_y = [], [], [], []
         hold_points_x, hold_points_y = [], []
 
-        # portfolio에서 모든 거래 내역 가져오기 (리스트 형태)
-        portfolio = self.context.get_cache("portfolio", {}) or {}
-        trades = portfolio.get(self.ticker, [])
+        # saved_context 보고서 + 캐시를 병합하여 거래 내역 구성 (파일은 사용하지 않음)
+        trades_map: Dict[str, Dict[str, Any]] = {}
+        # 우선순위: context < cache (나중에 들어온 것이 같은 날짜/시 키를 덮어씀)
+        context_trades = _trades_from_context_reports(self.context, self.ticker)
+
+        cache_portfolio = self.context.get_cache("portfolio", {}) or {}
+        cache_trades = cache_portfolio.get(self.ticker, [])
+        if isinstance(cache_trades, dict):
+            cache_trades = [cache_trades]
+
+        def _hour_key(dt_str: str) -> str:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:00", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(dt_str, fmt).strftime("%Y-%m-%d %H:00")
+                except Exception:
+                    continue
+            return dt_str
+
+        for source_trades in (context_trades, cache_trades):
+            for t in source_trades or []:
+                added_at = t.get("added_at")
+                if not added_at:
+                    continue
+                trades_map[_hour_key(added_at)] = t
+
+        trades = list(trades_map.values())
 
         # 리스트가 아니면 기존 형식 호환 (단일 dict인 경우)
         if isinstance(trades, dict):
             trades = [trades] if trades else []
+
+        def _parse_trade_dt(dt_str: str):
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(dt_str, fmt)
+                except Exception:
+                    continue
+            return None
 
         for trade in trades:
             decision = (trade.get("decision", "") or "").upper()
@@ -296,15 +376,13 @@ class StockChartScreen(BaseScreen):
             if not trade_date or not decision:
                 continue
 
-            # 차트에 없는 날짜면 가장 가까운 날짜로 매핑
-            if trade_date in dates:
+            # 차트에 없는 날짜면 가장 가까운 날짜로 매핑 (시/일/주봉 모두 지원)
+            idx = None
+            trade_dt = _parse_trade_dt(trade_date)
+            if trade_dt and timestamps:
+                idx = min(range(len(timestamps)), key=lambda i: abs(timestamps[i] - trade_dt))
+            elif trade_date in dates:
                 idx = dates.index(trade_date)
-            else:
-                try:
-                    target = datetime.strptime(trade_date, "%Y-%m-%d")
-                    idx = min(range(len(dates)), key=lambda i: abs(datetime.strptime(dates[i], "%Y-%m-%d") - target))
-                except Exception:
-                    idx = None
 
             if idx is not None:
                 if "BUY" in decision:
@@ -357,13 +435,33 @@ class StockChartScreen(BaseScreen):
         container = self.query_one("#trade-history", VerticalScroll)
         await container.remove_children()
 
-        # portfolio에서 해당 ticker의 거래 기록 가져오기
-        portfolio = self.context.get_cache("portfolio", {}) or {}
-        trades = portfolio.get(self.ticker, [])
+        # saved_context 보고서 + 캐시를 병합하여 거래 내역 구성 (파일은 사용하지 않음)
+        trades_map: Dict[str, Dict[str, Any]] = {}
 
-        # 리스트가 아니면 기존 형식 호환 (단일 dict인 경우)
-        if isinstance(trades, dict):
-            trades = [trades] if trades else []
+        # 우선순위: context < cache (나중에 들어온 것이 같은 날짜/시 키를 덮어씀)
+        context_trades = _trades_from_context_reports(self.context, self.ticker)
+
+        cache_portfolio = self.context.get_cache("portfolio", {}) or {}
+        cache_trades = cache_portfolio.get(self.ticker, [])
+        if isinstance(cache_trades, dict):
+            cache_trades = [cache_trades]
+
+        def _hour_key(dt_str: str) -> str:
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:00", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(dt_str, fmt).strftime("%Y-%m-%d %H:00")
+                except Exception:
+                    continue
+            return dt_str
+
+        for source_trades in (context_trades, cache_trades):
+            for t in source_trades or []:
+                added_at = t.get("added_at")
+                if not added_at:
+                    continue
+                trades_map[_hour_key(added_at)] = t
+
+        trades = list(trades_map.values())
 
         if not trades:
             await container.mount(Static("거래 내역이 없습니다.", classes="trade-history-text"))
@@ -373,9 +471,18 @@ class StockChartScreen(BaseScreen):
         sorted_trades = sorted(trades, key=lambda x: x.get("added_at", ""), reverse=True)
 
         for trade in sorted_trades:
-            trade_date = trade.get("added_at", "")
-            decision = trade.get("decision", "")
-            label = f"{trade_date} - {decision}"
+            raw_datetime = trade.get("added_at", "") or ""
+            # "unknown" 또는 빈 값 처리
+            if not raw_datetime or raw_datetime.lower() == "unknown":
+                trade_datetime = "날짜 없음"
+            else:
+                trade_datetime = raw_datetime
+            decision = trade.get("decision", "") or "N/A"
+            quantity = trade.get("quantity", "")
+
+            # 시간 정보 포함하여 표시 (YYYY-MM-DD HH:MM:SS 형식)
+            quantity_str = f" ({quantity}주)" if quantity else ""
+            label = f"{trade_datetime} - {decision}{quantity_str}"
 
             # decision에 따른 색상 구분
             if "BUY" in decision.upper():

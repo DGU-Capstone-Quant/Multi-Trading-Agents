@@ -30,26 +30,16 @@ class RiskCheckerAgent(Agent):
             logger.info(f"[{self.name}] Starting risk assessment")
 
             ticker = context.get_cache("ticker", "UNKNOWN")
-            date = context.get_cache("date", "UNKNOWN_DATE")
+            date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
 
             # investment_plan은 문자열로 저장되므로 직접 가져오기
             from datetime import datetime as dt
             date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
             investment_plan = context.reports.get(ticker, {}).get(date_key, {}).get("investment_plan", "")
 
-            market_report = context.get_report(ticker, date, "financial")
-            if not market_report:
-                market_report = context.get_report(ticker, date, "news")
-            if not market_report:
-                market_report = context.get_report(ticker, date, "fundamental")
-
             if not investment_plan:
                 logger.error(f"[{self.name}] Investment plan not found for {ticker} on {date}")
                 raise ValueError("Investment plan is required for risk assessment")
-
-            if not market_report:
-                logger.error(f"[{self.name}] Market report not found for {ticker} on {date}")
-                raise ValueError("Market report is required for risk assessment")
 
             system_instruction = """You are a risk analyst evaluating investment risks.
 Analyze the investment plan and market conditions to identify potential risks.
@@ -59,9 +49,6 @@ Provide a risk level (HIGH/MEDIUM/LOW), key risk factors, and a risk score (0-10
 
 Investment Plan:
 {investment_plan}
-
-Market Report:
-{market_report}
 
 Identify potential risks including market volatility, liquidity concerns, valuation risks,
 and any other relevant factors. Provide a comprehensive risk assessment."""
@@ -97,6 +84,7 @@ and any other relevant factors. Provide a comprehensive risk assessment."""
 
         except Exception as e:
             logger.error(f"[{self.name}] Error during risk assessment: {str(e)}")
+            print(f"[{self.name}] Error during risk assessment: {str(e)}")
             context.set_cache(
                 risk_assessment={
                     "risk_level": "HIGH",
@@ -104,7 +92,7 @@ and any other relevant factors. Provide a comprehensive risk assessment."""
                     "risk_score": 100,
                 }
             )
-            raise
+            return context
 
 
 class TraderAgent(Agent):
@@ -117,28 +105,18 @@ class TraderAgent(Agent):
             logger.info(f"[{self.name}] Starting trading decision process")
 
             ticker = context.get_cache("ticker", "UNKNOWN")
-            date = context.get_cache("date", "UNKNOWN_DATE")
+            date = context.get_config("trade_date", "") or context.get_cache("date", "UNKNOWN_DATE")
 
             # investment_plan은 문자열로 저장되므로 직접 가져오기
             from datetime import datetime as dt
             date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
             investment_plan = context.reports.get(ticker, {}).get(date_key, {}).get("investment_plan", "")
 
-            market_report = context.get_report(ticker, date, "financial")
-            if not market_report:
-                market_report = context.get_report(ticker, date, "news")
-            if not market_report:
-                market_report = context.get_report(ticker, date, "fundamental")
-
             risk_assessment = context.get_cache("risk_assessment", {})
 
             if not investment_plan:
                 logger.error(f"[{self.name}] Investment plan not found for {ticker} on {date}")
                 raise ValueError("Investment plan is required for trading decision")
-
-            if not market_report:
-                logger.error(f"[{self.name}] Market report not found for {ticker} on {date}")
-                raise ValueError("Market report is required for trading decision")
 
             system_instruction = """You are a portfolio manager analyzing market data to make investment decisions.
 Based on your analysis, provide a specific recommendation to buy, sell, or hold.
@@ -168,9 +146,6 @@ Use this plan as a foundation for evaluating your next trading decision.
 
 Proposed Investment Plan:
 {investment_plan}
-
-Current Market Situation:
-{market_report}
 {risk_section}
 
 Leverage these insights to make an informed and strategic decision.
@@ -215,4 +190,4 @@ Provide your recommendation, final decision (BUY/HOLD/SELL), and confidence leve
                     "confidence": 0,
                 }
             )
-            raise
+            return context
