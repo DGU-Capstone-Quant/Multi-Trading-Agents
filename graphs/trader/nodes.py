@@ -133,7 +133,7 @@ class TraderNode(BaseNode):
             print(f"[{self.name}] Original Decision: {original_decision} → Forced: {decision}")
 
         # 주문 실행 로직
-        global kis_trader
+        kis_trader = context.get_cache("kis_trader")
         if decision in ["BUY", "SELL"]:
             if kis_trader:
                 # AI가 계산한 수량 사용
