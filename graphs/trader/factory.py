@@ -1,14 +1,13 @@
-from pathlib import Path
 from modules.graph.graph import Graph
 from graphs.trader.nodes import RiskCheckerNode, TraderNode
 
 
 def create_trader_graph() -> Graph:
-    risk_checker = RiskCheckerNode("RiskChecker")
-    trader = TraderNode("Trader")
+    graph = Graph("trader_graph", start_node=RiskCheckerNode("risk_checker_node"))
 
-    g = Graph(risk_checker)
-    g.add_node(trader)
-    g.add_edge("RiskChecker", "Trader")
+    risk_checker = graph.start_node.name
+    trader = graph.add_node(TraderNode("trader_node"))
 
-    return g
+    graph.add_edge(risk_checker, trader)
+
+    return graph

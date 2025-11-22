@@ -17,6 +17,7 @@ class TraderDecision(BaseModel):
     recommendation: str = Field(..., min_length=10, description="Detailed trading recommendation")
     decision: Literal["BUY", "HOLD", "SELL"] = Field(..., description="Final trading decision")
     confidence: int = Field(..., ge=0, le=100, description="Confidence level 0-100")
+    quantity: int = Field(..., ge=1, le=1000, description="Recommended quantity to trade (1-1000 shares)")
 
 
 class RiskCheckerAgent(Agent):
@@ -28,15 +29,26 @@ class RiskCheckerAgent(Agent):
         try:
             logger.info(f"[{self.name}] Starting risk assessment")
 
-            investment_plan = context.get_report("investment_plan")
-            market_report = context.get_report("market_report")
+            ticker = context.get_cache("ticker", "UNKNOWN")
+            date = context.get_cache("date", "UNKNOWN_DATE")
 
-            if "No report found" in investment_plan:
-                logger.error(f"[{self.name}] Investment plan not found")
+            # investment_plan은 문자열로 저장되므로 직접 가져오기
+            from datetime import datetime as dt
+            date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+            investment_plan = context.reports.get(ticker, {}).get(date_key, {}).get("investment_plan", "")
+
+            market_report = context.get_report(ticker, date, "financial")
+            if not market_report:
+                market_report = context.get_report(ticker, date, "news")
+            if not market_report:
+                market_report = context.get_report(ticker, date, "fundamental")
+
+            if not investment_plan:
+                logger.error(f"[{self.name}] Investment plan not found for {ticker} on {date}")
                 raise ValueError("Investment plan is required for risk assessment")
 
-            if "No report found" in market_report:
-                logger.error(f"[{self.name}] Market report not found")
+            if not market_report:
+                logger.error(f"[{self.name}] Market report not found for {ticker} on {date}")
                 raise ValueError("Market report is required for risk assessment")
 
             system_instruction = """You are a risk analyst evaluating investment risks.
@@ -58,7 +70,7 @@ and any other relevant factors. Provide a comprehensive risk assessment."""
             resp = self.llm_client.generate_content(
                 model=self.quick_model,
                 contents=[prompt],
-                system_instructions=system_instruction,
+                system_instruction=system_instruction,
                 thinking_budget=self.quick_thinking_budget,
                 schema=RiskAssessment,
             )
@@ -104,22 +116,41 @@ class TraderAgent(Agent):
         try:
             logger.info(f"[{self.name}] Starting trading decision process")
 
-            investment_plan = context.get_report("investment_plan")
-            market_report = context.get_report("market_report")
+            ticker = context.get_cache("ticker", "UNKNOWN")
+            date = context.get_cache("date", "UNKNOWN_DATE")
+
+            # investment_plan은 문자열로 저장되므로 직접 가져오기
+            from datetime import datetime as dt
+            date_key = dt.strptime(date, "%Y%m%dT%H%M").strftime("%Y%m%dT%H")
+            investment_plan = context.reports.get(ticker, {}).get(date_key, {}).get("investment_plan", "")
+
+            market_report = context.get_report(ticker, date, "financial")
+            if not market_report:
+                market_report = context.get_report(ticker, date, "news")
+            if not market_report:
+                market_report = context.get_report(ticker, date, "fundamental")
+
             risk_assessment = context.get_cache("risk_assessment", {})
 
-            if "No report found" in investment_plan:
-                logger.error(f"[{self.name}] Investment plan not found")
+            if not investment_plan:
+                logger.error(f"[{self.name}] Investment plan not found for {ticker} on {date}")
                 raise ValueError("Investment plan is required for trading decision")
 
-            if "No report found" in market_report:
-                logger.error(f"[{self.name}] Market report not found")
+            if not market_report:
+                logger.error(f"[{self.name}] Market report not found for {ticker} on {date}")
                 raise ValueError("Market report is required for trading decision")
 
             system_instruction = """You are a portfolio manager analyzing market data to make investment decisions.
 Based on your analysis, provide a specific recommendation to buy, sell, or hold.
 Your decision must be one of: BUY, HOLD, or SELL.
-Also provide a confidence level (0-100) for your decision."""
+Also provide a confidence level (0-100) and recommended quantity (1-1000 shares) for your decision.
+
+When determining quantity:
+- Consider the risk level (HIGH risk = smaller quantity, LOW risk = larger quantity)
+- Consider your confidence level (low confidence = smaller quantity)
+- Consider portfolio diversification (don't put all eggs in one basket)
+- For HOLD decisions, quantity can be any value as it won't be used
+- Typical range: 1-10 shares for high risk, 10-50 shares for medium risk, 50-100+ shares for low risk"""
 
             risk_section = ""
             if risk_assessment:
@@ -149,25 +180,27 @@ Provide your recommendation, final decision (BUY/HOLD/SELL), and confidence leve
             resp = self.llm_client.generate_content(
                 model=self.quick_model,
                 contents=[prompt],
-                system_instructions=system_instruction,
+                system_instruction=system_instruction,
                 thinking_budget=self.quick_thinking_budget,
                 schema=TraderDecision,
             )
 
             recommendation = resp.content.get("recommendation", "")
             decision = resp.content.get("decision", "")
+            quantity = resp.content.get("quantity", 1)
 
             if not recommendation or not decision:
                 logger.error(f"[{self.name}] Empty response from LLM")
                 raise ValueError("LLM returned empty recommendation or decision")
 
-            logger.info(f"[{self.name}] Decision made: {decision}")
+            logger.info(f"[{self.name}] Decision made: {decision}, Quantity: {quantity}")
 
             context.set_cache(
                 trader_decision={
                     "decision": decision,
                     "recommendation": recommendation,
                     "confidence": resp.content.get("confidence", 50),
+                    "quantity": quantity,
                 }
             )
 
