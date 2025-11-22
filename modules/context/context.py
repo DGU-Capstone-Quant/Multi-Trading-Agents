@@ -23,6 +23,7 @@ class Context:
             self.translations = data.get("translations", {})
             self.config = data.get("config", {})
             self.logs = data.get("logs", [])
+            self.cache = data.get("cache", {})
     
     def save(self):
         data = {
@@ -30,6 +31,9 @@ class Context:
             "translations": self.translations,
             "config": self.config,
             "logs": self.logs,
+            "cache": {
+                "portfolio": self.cache.get("portfolio", {}),
+            }
         }
         with open("./saved_context.json", "w") as f:
             json.dump(data, f, indent=4)
