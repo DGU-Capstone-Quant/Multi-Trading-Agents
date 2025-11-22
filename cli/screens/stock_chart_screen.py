@@ -9,16 +9,23 @@ from textual import on
 from textual_plotext import PlotextPlot
 
 from modules.context import Context
-from modules.utils.fetch import fetch_time_series_daily
+from modules.utils.fetch import fetch_time_series_intraday, fetch_time_series_daily, fetch_time_series_weekly
 from cli.base import BaseScreen
 from cli.events import ContextUpdated
 
-# 이동/확대 단위 옵션: (라벨, 일수)
-STEP_OPTIONS = [
-    ("1일", 1),
-    ("1주일", 7),
-    ("1개월", 30),
+# 차트 타입 옵션: (라벨, 타입, 기본 표시 범위)
+CHART_TYPE_OPTIONS = [
+    ("1시간봉", "hourly", 48),   # 48시간 (2일)
+    ("일봉", "daily", 30),       # 30일
+    ("주봉", "weekly", 52),      # 52주 (1년)
 ]
+
+# 이동/확대 단위 (차트 타입별)
+STEP_UNITS = {
+    "hourly": 1,   # 1시간
+    "daily": 1,    # 1일
+    "weekly": 1,   # 1주
+}
 
 # 기본 표시 범위 (일수)
 DEFAULT_RANGE = 30
@@ -169,9 +176,9 @@ class StockChartScreen(BaseScreen):
         super().__init__(context, *args, **kwargs)
         self.ticker = str(ticker)  # Text 객체일 수 있으므로 str로 변환
         self.df = None
-        self.current_step = 0  # 이동/확대 단위 (기본: 1일)
+        self.current_chart_type = 0  # 차트 타입 (0: 일봉, 1: 주봉, 2: 월봉)
         self.end_date = datetime.now()  # 차트 끝 날짜 (현재)
-        self.display_range = DEFAULT_RANGE  # 표시 범위 (일수)
+        self.display_range = CHART_TYPE_OPTIONS[0][2]  # 표시 범위 (일봉 기본값)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -180,10 +187,10 @@ class StockChartScreen(BaseScreen):
                 yield Static(f"{self.ticker} 주가 차트", id="chart-title")
                 yield Static(f"Ticker: {self.ticker} | {self.end_date.strftime('%Y년 %m월 %d일')}", id="chart-info")
             with Horizontal(id="control-container"):
-                # 단위 선택 버튼
-                for i, (label, _) in enumerate(STEP_OPTIONS):
-                    classes = "step-button active" if i == self.current_step else "step-button"
-                    yield Button(label, id=f"step-{i}", classes=classes)
+                # 차트 타입 선택 버튼 (일봉/주봉/월봉)
+                for i, (label, _, _) in enumerate(CHART_TYPE_OPTIONS):
+                    classes = "step-button active" if i == self.current_chart_type else "step-button"
+                    yield Button(label, id=f"chart-type-{i}", classes=classes)
                 yield Static("", id="nav-separator-1")
                 # 좌우 이동 버튼
                 yield Button("<<", id="nav-left", classes="nav-button")
@@ -193,7 +200,7 @@ class StockChartScreen(BaseScreen):
                 yield Button("-", id="zoom-out", classes="nav-button")
                 yield Button("+", id="zoom-in", classes="nav-button")
                 # 범위 표시
-                yield Static(f"{self.display_range}일", id="range-info")
+                yield Static(self._get_range_label(), id="range-info")
             with Container(id="chart-content"):
                 yield PlotextPlot(id="chart-plot")
             yield VerticalScroll(id="trade-history")
@@ -207,14 +214,28 @@ class StockChartScreen(BaseScreen):
         await self.refresh_trade_history()
 
     async def load_stock_data(self) -> None:
-        """일봉 데이터를 로드 (전체 기간)"""
+        """차트 타입에 따라 데이터를 로드 (1시간봉/일봉/주봉)"""
         try:
-            # 상장 이후 전체 일봉 데이터를 한 번만 로드
-            self.df = fetch_time_series_daily(
-                ticker=self.ticker,
-                days=-1,  # -1: 전체 기간
-                date_to=datetime.now().strftime("%Y-%m-%d"),
-            )
+            _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+            date_to = datetime.now().strftime("%Y-%m-%d")
+
+            if chart_type == "hourly":
+                self.df = fetch_time_series_intraday(
+                    ticker=self.ticker,
+                    interval="60min",
+                )
+            elif chart_type == "daily":
+                self.df = fetch_time_series_daily(
+                    ticker=self.ticker,
+                    days=-1,
+                    date_to=date_to,
+                )
+            elif chart_type == "weekly":
+                self.df = fetch_time_series_weekly(
+                    ticker=self.ticker,
+                    weeks=-1,
+                    date_to=date_to,
+                )
 
             chart_plot = self.query_one("#chart-plot", PlotextPlot)
             chart_plot.plt.clear_data()
@@ -230,9 +251,15 @@ class StockChartScreen(BaseScreen):
     def _render_chart(self, chart_plot) -> None:
         # end_date와 display_range를 사용하여 데이터 필터링
         df_chart = self.df.copy().sort_values('timestamp')
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
 
-        # 현재 설정된 end_date와 display_range로 필터링
-        start_date = self.end_date - timedelta(days=self.display_range)
+        # 차트 타입에 따라 필터링 기간 계산
+        if chart_type == "hourly":
+            start_date = self.end_date - timedelta(hours=self.display_range)
+        elif chart_type == "daily":
+            start_date = self.end_date - timedelta(days=self.display_range)
+        else:  # weekly
+            start_date = self.end_date - timedelta(weeks=self.display_range)
 
         # 날짜 범위로 필터링
         df_filtered = df_chart[
@@ -298,9 +325,10 @@ class StockChartScreen(BaseScreen):
             chart_plot.plt.scatter(hold_points_x, hold_points_y, marker="•", color="yellow")
 
         # 현재 날짜/범위 표시
-        step_label, _ = STEP_OPTIONS[self.current_step]
+        chart_label, _, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
         end_str = self.end_date.strftime('%Y-%m-%d')
-        chart_plot.plt.title(f"{self.ticker} ({self.display_range}일)  |  끝: {end_str}  |  단위: {step_label}  |  BUY:^  SELL:v  HOLD:•")
+        range_label = self._get_range_label()
+        chart_plot.plt.title(f"{self.ticker} {chart_label} ({range_label})  |  끝: {end_str}  |  BUY:^  SELL:v  HOLD:•")
         chart_plot.plt.xlabel("날짜")
         chart_plot.plt.ylabel("가격 ($)")
 
@@ -368,37 +396,56 @@ class StockChartScreen(BaseScreen):
         self.run_worker(self.load_stock_data())
 
     @on(Button.Pressed, ".step-button")
-    def on_step_button_pressed(self, event: Button.Pressed) -> None:
-        """단위 버튼 클릭 시 이동/확대 단위 변경"""
+    def on_chart_type_button_pressed(self, event: Button.Pressed) -> None:
+        """차트 타입 버튼 클릭 시 일봉/주봉/월봉 변경"""
         button_id = event.button.id or ""
-        if button_id.startswith("step-"):
+        if button_id.startswith("chart-type-"):
             try:
-                new_step = int(button_id.replace("step-", ""))
-                if 0 <= new_step < len(STEP_OPTIONS):
-                    self.current_step = new_step
+                new_type = int(button_id.replace("chart-type-", ""))
+                if 0 <= new_type < len(CHART_TYPE_OPTIONS):
+                    self.current_chart_type = new_type
+                    # 기본 표시 범위로 리셋
+                    _, _, default_range = CHART_TYPE_OPTIONS[new_type]
+                    self.display_range = default_range
 
                     # 버튼 활성화 상태 업데이트
-                    for i in range(len(STEP_OPTIONS)):
-                        btn = self.query_one(f"#step-{i}", Button)
-                        if i == new_step:
+                    for i in range(len(CHART_TYPE_OPTIONS)):
+                        btn = self.query_one(f"#chart-type-{i}", Button)
+                        if i == new_type:
                             btn.add_class("active")
                         else:
                             btn.remove_class("active")
+
+                    # 새 차트 타입으로 데이터 재로드
+                    self.run_worker(self.load_stock_data())
+                    self._update_range_info()
             except (ValueError, Exception):
                 pass
 
     @on(Button.Pressed, "#nav-left")
     def on_nav_left_pressed(self) -> None:
         """왼쪽 이동 (과거로)"""
-        _, days = STEP_OPTIONS[self.current_step]
-        self.end_date = self.end_date - timedelta(days=days)
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        step = STEP_UNITS[chart_type]
+        if chart_type == "hourly":
+            self.end_date = self.end_date - timedelta(hours=step)
+        elif chart_type == "daily":
+            self.end_date = self.end_date - timedelta(days=step)
+        else:  # weekly
+            self.end_date = self.end_date - timedelta(weeks=step)
         self._update_chart_and_info()
 
     @on(Button.Pressed, "#nav-right")
     def on_nav_right_pressed(self) -> None:
         """오른쪽 이동 (미래로)"""
-        _, days = STEP_OPTIONS[self.current_step]
-        new_end = self.end_date + timedelta(days=days)
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        step = STEP_UNITS[chart_type]
+        if chart_type == "hourly":
+            new_end = self.end_date + timedelta(hours=step)
+        elif chart_type == "daily":
+            new_end = self.end_date + timedelta(days=step)
+        else:  # weekly
+            new_end = self.end_date + timedelta(weeks=step)
         # 현재 날짜를 넘어가지 않도록 제한
         if new_end <= datetime.now():
             self.end_date = new_end
@@ -409,17 +456,19 @@ class StockChartScreen(BaseScreen):
     @on(Button.Pressed, "#zoom-out")
     def on_zoom_out_pressed(self) -> None:
         """확대 (범위 축소)"""
-        _, days = STEP_OPTIONS[self.current_step]
-        new_range = self.display_range - days
-        if new_range >= days:  # 최소 범위는 단위 크기
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        step = STEP_UNITS[chart_type]
+        new_range = self.display_range - step
+        if new_range >= step:  # 최소 범위는 단위 크기
             self.display_range = new_range
             self._update_chart_and_info()
 
     @on(Button.Pressed, "#zoom-in")
     def on_zoom_in_pressed(self) -> None:
         """축소 (범위 확대)"""
-        _, days = STEP_OPTIONS[self.current_step]
-        self.display_range = self.display_range + days
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        step = STEP_UNITS[chart_type]
+        self.display_range = self.display_range + step
         self._update_chart_and_info()
 
     def _update_chart_and_info(self) -> None:
@@ -429,8 +478,22 @@ class StockChartScreen(BaseScreen):
         info = self.query_one("#chart-info", Static)
         info.update(f"Ticker: {self.ticker} | {self.end_date.strftime('%Y년 %m월 %d일')}")
         # 범위 정보 업데이트
+        self._update_range_info()
+
+    def _update_range_info(self) -> None:
+        """범위 정보 라벨 업데이트"""
         range_info = self.query_one("#range-info", Static)
-        range_info.update(f"{self.display_range}일")
+        range_info.update(self._get_range_label())
+
+    def _get_range_label(self) -> str:
+        """차트 타입에 맞는 범위 라벨 반환"""
+        _, chart_type, _ = CHART_TYPE_OPTIONS[self.current_chart_type]
+        if chart_type == "hourly":
+            return f"{self.display_range}시간"
+        elif chart_type == "daily":
+            return f"{self.display_range}일"
+        else:  # weekly
+            return f"{self.display_range}주"
 
     @on(Button.Pressed, ".trade-history-item")
     def on_trade_history_item_pressed(self, event: Button.Pressed) -> None:
